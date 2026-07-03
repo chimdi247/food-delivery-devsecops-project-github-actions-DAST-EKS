@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: food-delivery-backend
+  namespace: food-delivery
+  labels:
+    app: food-delivery-backend
+spec:
+  type: ClusterIP
+  selector:
+    app: food-delivery-backend
+  ports:
+    - protocol: TCP
+      port: 4000
+      targetPort: 4000

@@ -1,0 +1,493 @@
+name: EKS Terraform
+
+run-name: >-
+  ${{
+    github.event_name == 'pull_request'
+    && format('EKS Terraform PR Plan #{0}', github.event.pull_request.number)
+    || github.event.inputs.action == 'apply'
+    && 'EKS Terraform Apply'
+    || github.event.inputs.action == 'destroy'
+    && 'EKS Terraform Destroy'
+    || github.event.inputs.action == 'plan'
+    && 'EKS Terraform Plan'
+    || 'EKS Terraform'
+  }}
+
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-infra.yml"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Choose what you want to do with the cluster"
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+      confirm_destroy:
+        description: "Type yes only when you really want to delete the entire cluster"
+        required: false
+        default: "no"
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: eks-terraform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TF_WORKING_DIR: "terraform"
+  TF_STATE_KEY: "production/terraform.tfstate"
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════
+  # PR Plan — runs automatically on pull requests
+  # ═══════════════════════════════════════════════════════════════════
+  terraform-plan-pr:
+    name: Terraform Plan On PR
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ env.TF_WORKING_DIR }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ env.TF_STATE_KEY }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -no-color
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Manual Actions — plan, apply, or destroy
+  # ═══════════════════════════════════════════════════════════════════
+  terraform-manual:
+    name: Terraform Manual Action
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ env.TF_WORKING_DIR }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Validate destroy confirmation
+        if: github.event.inputs.action == 'destroy'
+        run: |
+          if [ "${{ github.event.inputs.confirm_destroy }}" != "yes" ]; then
+            echo "❌ Destroy was selected but confirm_destroy is not 'yes'."
+            echo "   You must type 'yes' to confirm destruction."
+            exit 1
+          fi
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+        continue-on-error: true
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ env.TF_STATE_KEY }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      # ─────────────────────────────────────────────────────────────
+      # PLAN
+      # ─────────────────────────────────────────────────────────────
+      - name: Terraform Plan
+        if: github.event.inputs.action == 'plan'
+        run: terraform plan -no-color
+
+      # ─────────────────────────────────────────────────────────────
+      # APPLY — Creates all infrastructure
+      # ─────────────────────────────────────────────────────────────
+      - name: Terraform Apply
+        if: github.event.inputs.action == 'apply'
+        run: terraform apply -auto-approve -no-color
+
+      - name: Cluster Connection Summary
+        if: github.event.inputs.action == 'apply'
+        run: |
+          CLUSTER_NAME=$(terraform output -raw eks_cluster_name 2>/dev/null || echo "food-delivery-cluster")
+          REGION="${{ vars.AWS_REGION }}"
+
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/kubectl
+
+          # Connect to cluster
+          aws eks update-kubeconfig --region $REGION --name $CLUSTER_NAME 2>/dev/null || true
+
+          # Count resources
+          EC2_COUNT=$(aws ec2 describe-instances --region $REGION \
+            --filters "Name=instance-state-name,Values=running" \
+            --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null | wc -w || echo "0")
+          VOL_COUNT=$(aws ec2 describe-volumes --region $REGION \
+            --filters "Name=status,Values=in-use,available" \
+            --query 'Volumes[].VolumeId' --output text 2>/dev/null | wc -w || echo "0")
+          VOL_TOTAL_GB=$(aws ec2 describe-volumes --region $REGION \
+            --filters "Name=status,Values=in-use,available" \
+            --query 'Volumes[].Size' --output text 2>/dev/null | tr '\t' '\n' | awk '{sum+=$1} END{print sum+0}')
+          EIP_COUNT=$(aws ec2 describe-addresses --region $REGION \
+            --query 'Addresses[].AllocationId' --output text 2>/dev/null | wc -w || echo "0")
+          NAT_COUNT=$(aws ec2 describe-nat-gateways --region $REGION \
+            --filter "Name=state,Values=available" \
+            --query 'NatGateways[].NatGatewayId' --output text 2>/dev/null | wc -w || echo "0")
+          NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l || echo "0")
+
+          # Cost estimate
+          DAILY_COST=$(echo "scale=2; ($EC2_COUNT * 1.12) + ($NAT_COUNT * 1.08) + ($EIP_COUNT * 0.12) + ($VOL_TOTAL_GB * 0.003) + 2.40" | bc)
+          MONTHLY_COST=$(echo "scale=2; $DAILY_COST * 30" | bc)
+
+          {
+            echo "## 🎉 Infrastructure Created Successfully"
+            echo ""
+            echo "### 📦 What Was Created"
+            echo ""
+            echo "| Resource | Count | Details |"
+            echo "|---|---|---|"
+            echo "| VPC + Subnets | 1 VPC | 2 public + 2 private subnets |"
+            echo "| EKS Cluster (Auto Mode) | 1 | ${CLUSTER_NAME} — no node groups needed |"
+            echo "| ECR Repositories | 3 | backend, frontend, admin |"
+            echo "| Bastion EC2 | ${EC2_COUNT} | t3.medium with SonarQube |"
+            echo "| EBS Volumes | ${VOL_COUNT} | ${VOL_TOTAL_GB} GB total |"
+            echo "| NAT Gateway | ${NAT_COUNT} | Private subnet internet |"
+            echo "| Elastic IP | ${EIP_COUNT} | Bastion public IP |"
+            echo "| Secrets Manager | 4 | App, DB, Pipeline, SonarQube |"
+            echo "| KMS Key | 1 | EKS secrets encryption |"
+            echo "| EKS Worker Nodes | ${NODE_COUNT} | Auto Mode (scales with pods) |"
+            echo ""
+            echo "### 💰 Estimated Cost While Running"
+            echo ""
+            echo "| Period | Cost |"
+            echo "|---|---|"
+            echo "| Per Day | \$${DAILY_COST} |"
+            echo "| Per Month | \$${MONTHLY_COST} |"
+            echo ""
+            echo "> ⚠️ **Destroy when done** to stop all charges!"
+            echo ""
+            echo "### 🔌 Connect To Your Cluster"
+            echo ""
+            echo "\`\`\`bash"
+            echo "aws eks update-kubeconfig --region ${REGION} --name ${CLUSTER_NAME}"
+            echo "kubectl get nodes"
+            echo "\`\`\`"
+            echo ""
+            echo "### 🖥️ Connect To Bastion (SSM — no SSH key)"
+            echo ""
+            echo "\`\`\`bash"
+            echo "INSTANCE_ID=\$(aws ec2 describe-instances --region ${REGION} \\"
+            echo "  --filters 'Name=tag:Name,Values=food-delivery-bastion' 'Name=instance-state-name,Values=running' \\"
+            echo "  --query 'Reservations[0].Instances[0].InstanceId' --output text)"
+            echo "aws ssm start-session --target \$INSTANCE_ID --region ${REGION}"
+            echo "\`\`\`"
+            echo ""
+            echo "### 🔍 SonarQube"
+            echo ""
+            BASTION_IP=$(aws ec2 describe-instances --region ${REGION} \
+              --filters "Name=tag:Name,Values=food-delivery-bastion" "Name=instance-state-name,Values=running" \
+              --query 'Reservations[0].Instances[0].PublicIpAddress' --output text 2>/dev/null || echo "BASTION_IP")
+            echo "- URL: http://${BASTION_IP}:9000"
+            echo "- Login: admin / admin (change on first login)"
+            echo ""
+            echo "---"
+            echo ""
+            echo "> When done → Run this workflow with **destroy** + type **yes** to confirm"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ─────────────────────────────────────────────────────────────
+      # DESTROY — Deletes everything, bill → $0
+      # ─────────────────────────────────────────────────────────────
+      - name: Pre-Destroy — Uninstall Helm Releases
+        if: github.event.inputs.action == 'destroy'
+        continue-on-error: true
+        run: |
+          CLUSTER_NAME=$(terraform output -raw eks_cluster_name 2>/dev/null || echo "food-delivery-cluster")
+          if ! aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${{ vars.AWS_REGION }}" >/dev/null 2>&1; then
+            echo "Cluster not found. Skipping Helm cleanup."
+            exit 0
+          fi
+
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/kubectl
+
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+          aws eks update-kubeconfig --region "${{ vars.AWS_REGION }}" --name "${CLUSTER_NAME}"
+
+          # Uninstall all Helm releases
+          helm list -A --short 2>/dev/null | while read -r release; do
+            NS=$(helm list -A --filter "^${release}$" -o json 2>/dev/null | jq -r '.[0].namespace // "default"')
+            echo "Uninstalling Helm release: ${release} (ns: ${NS})"
+            helm uninstall "${release}" -n "${NS}" --wait 2>/dev/null || true
+          done
+
+      - name: Pre-Destroy — Kubernetes Cleanup
+        if: github.event.inputs.action == 'destroy'
+        continue-on-error: true
+        run: |
+          CLUSTER_NAME=$(terraform output -raw eks_cluster_name 2>/dev/null || echo "food-delivery-cluster")
+          if ! aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${{ vars.AWS_REGION }}" >/dev/null 2>&1; then
+            echo "Cluster not found. Skipping."
+            exit 0
+          fi
+
+          aws eks update-kubeconfig --region "${{ vars.AWS_REGION }}" --name "${CLUSTER_NAME}"
+
+          # Delete LoadBalancer services and Ingresses first (they create ALBs)
+          kubectl get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null | while read -r NS NAME; do
+            [ -z "${NS}" ] && continue
+            echo "Deleting LB service: ${NS}/${NAME}"
+            kubectl delete svc "${NAME}" -n "${NS}" --ignore-not-found=true || true
+          done
+
+          kubectl get ingress -A -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null | while read -r NS NAME; do
+            [ -z "${NS}" ] && continue
+            echo "Deleting ingress: ${NS}/${NAME}"
+            kubectl delete ingress "${NAME}" -n "${NS}" --ignore-not-found=true || true
+          done
+
+          # Delete PVCs (they create EBS volumes)
+          kubectl get pvc -A -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null | while read -r NS NAME; do
+            [ -z "${NS}" ] && continue
+            kubectl delete pvc "${NAME}" -n "${NS}" --ignore-not-found=true || true
+          done
+
+          # Delete non-system namespaces
+          kubectl get ns -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | while read -r NS; do
+            [ -z "${NS}" ] && continue
+            case "${NS}" in kube-system|kube-public|kube-node-lease|default) continue ;; esac
+            echo "Deleting namespace: ${NS}"
+            kubectl delete namespace "${NS}" --ignore-not-found=true --wait=false || true
+          done
+
+          echo "Waiting 120s for AWS resources (ALBs, EBS) to delete..."
+          sleep 120
+
+      - name: Terraform Destroy
+        if: github.event.inputs.action == 'destroy'
+        id: terraform_destroy
+        continue-on-error: true
+        run: terraform destroy -auto-approve -no-color
+
+      - name: Cleanup Orphaned Network Interfaces
+        if: github.event.inputs.action == 'destroy' && steps.terraform_destroy.outcome == 'failure'
+        continue-on-error: true
+        run: |
+          REGION="${{ vars.AWS_REGION }}"
+          echo "Cleaning up orphaned ENIs..."
+          ENIS=$(aws ec2 describe-network-interfaces --region $REGION \
+            --filters "Name=status,Values=available" \
+            --query 'NetworkInterfaces[].NetworkInterfaceId' --output text 2>/dev/null || echo "")
+          echo "$ENIS" | tr '\t' '\n' | while read -r eni; do
+            [ -z "$eni" ] && continue
+            echo "  Deleting ENI: $eni"
+            aws ec2 delete-network-interface --region $REGION --network-interface-id "$eni" || true
+          done
+
+      - name: Terraform Destroy Retry
+        if: github.event.inputs.action == 'destroy' && steps.terraform_destroy.outcome == 'failure'
+        run: terraform destroy -auto-approve -no-color
+
+      # ═══════════════════════════════════════════════════════════
+      # POST-DESTROY: Nuke orphaned AWS resources (bill → $0)
+      # ═══════════════════════════════════════════════════════════
+      - name: Post-Destroy — Delete Orphaned Load Balancers
+        if: github.event.inputs.action == 'destroy'
+        continue-on-error: true
+        run: |
+          REGION="${{ vars.AWS_REGION }}"
+          LB_ARNS=$(aws elbv2 describe-load-balancers --region $REGION \
+            --query 'LoadBalancers[].LoadBalancerArn' --output text 2>/dev/null || echo "")
+          if [ -n "$LB_ARNS" ] && [ "$LB_ARNS" != "None" ]; then
+            echo "$LB_ARNS" | tr '\t' '\n' | while read -r lb; do
+              [ -z "$lb" ] && continue
+              echo "  Deleting LB: $lb"
+              aws elbv2 delete-load-balancer --region $REGION --load-balancer-arn "$lb" || true
+            done
+            sleep 30
+            # Delete target groups
+            TGS=$(aws elbv2 describe-target-groups --region $REGION \
+              --query 'TargetGroups[].TargetGroupArn' --output text 2>/dev/null || echo "")
+            echo "$TGS" | tr '\t' '\n' | while read -r tg; do
+              [ -z "$tg" ] && continue
+              aws elbv2 delete-target-group --region $REGION --target-group-arn "$tg" || true
+            done
+          fi
+
+      - name: Post-Destroy — Delete Orphaned EBS Volumes
+        if: github.event.inputs.action == 'destroy'
+        continue-on-error: true
+        run: |
+          REGION="${{ vars.AWS_REGION }}"
+          aws ec2 describe-volumes --region $REGION \
+            --filters "Name=status,Values=available" \
+            --query 'Volumes[].VolumeId' --output text 2>/dev/null | tr '\t' '\n' | while read -r vol; do
+            [ -z "$vol" ] && continue
+            echo "  Deleting volume: $vol"
+            aws ec2 delete-volume --region $REGION --volume-id "$vol" || true
+          done
+
+      - name: Post-Destroy — Release Orphaned Elastic IPs
+        if: github.event.inputs.action == 'destroy'
+        continue-on-error: true
+        run: |
+          REGION="${{ vars.AWS_REGION }}"
+          aws ec2 describe-addresses --region $REGION \
+            --query 'Addresses[?AssociationId==null].AllocationId' --output text 2>/dev/null | tr '\t' '\n' | while read -r eip; do
+            [ -z "$eip" ] && continue
+            echo "  Releasing EIP: $eip"
+            aws ec2 release-address --region $REGION --allocation-id "$eip" || true
+          done
+
+      - name: Post-Destroy — Delete NAT Gateways
+        if: github.event.inputs.action == 'destroy'
+        continue-on-error: true
+        run: |
+          REGION="${{ vars.AWS_REGION }}"
+          aws ec2 describe-nat-gateways --region $REGION \
+            --filter "Name=state,Values=available,pending" \
+            --query 'NatGateways[].NatGatewayId' --output text 2>/dev/null | tr '\t' '\n' | while read -r nat; do
+            [ -z "$nat" ] && continue
+            echo "  Deleting NAT: $nat"
+            aws ec2 delete-nat-gateway --region $REGION --nat-gateway-id "$nat" || true
+          done
+          sleep 60
+
+      - name: Post-Destroy — Delete EBS Snapshots
+        if: github.event.inputs.action == 'destroy'
+        continue-on-error: true
+        run: |
+          REGION="${{ vars.AWS_REGION }}"
+          aws ec2 describe-snapshots --region $REGION --owner-ids self \
+            --query 'Snapshots[].SnapshotId' --output text 2>/dev/null | tr '\t' '\n' | while read -r snap; do
+            [ -z "$snap" ] && continue
+            echo "  Deleting snapshot: $snap"
+            aws ec2 delete-snapshot --region $REGION --snapshot-id "$snap" || true
+          done
+
+      - name: Post-Destroy — Delete CloudWatch Log Groups
+        if: github.event.inputs.action == 'destroy'
+        continue-on-error: true
+        run: |
+          REGION="${{ vars.AWS_REGION }}"
+          aws logs describe-log-groups --region $REGION \
+            --log-group-name-prefix "/aws/eks" \
+            --query 'logGroups[].logGroupName' --output text 2>/dev/null | tr '\t' '\n' | while read -r lg; do
+            [ -z "$lg" ] && continue
+            echo "  Deleting log group: $lg"
+            aws logs delete-log-group --region $REGION --log-group-name "$lg" || true
+          done
+
+      - name: Post-Destroy — Final Verification & Summary
+        if: github.event.inputs.action == 'destroy'
+        run: |
+          REGION="${{ vars.AWS_REGION }}"
+
+          REMAINING_EC2=$(aws ec2 describe-instances --region $REGION \
+            --filters "Name=instance-state-name,Values=running,stopped" \
+            --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null | wc -w || echo "0")
+          REMAINING_VOLS=$(aws ec2 describe-volumes --region $REGION \
+            --query 'Volumes[].VolumeId' --output text 2>/dev/null | wc -w || echo "0")
+          REMAINING_EIPS=$(aws ec2 describe-addresses --region $REGION \
+            --query 'Addresses[].AllocationId' --output text 2>/dev/null | wc -w || echo "0")
+          REMAINING_NATS=$(aws ec2 describe-nat-gateways --region $REGION \
+            --filter "Name=state,Values=available,pending" \
+            --query 'NatGateways[].NatGatewayId' --output text 2>/dev/null | wc -w || echo "0")
+          REMAINING_LBS=$(aws elbv2 describe-load-balancers --region $REGION \
+            --query 'LoadBalancers[].LoadBalancerArn' --output text 2>/dev/null | wc -w || echo "0")
+          REMAINING_EKS=$(aws eks list-clusters --region $REGION \
+            --query 'clusters' --output text 2>/dev/null | wc -w || echo "0")
+
+          TOTAL=$((REMAINING_EC2 + REMAINING_VOLS + REMAINING_EIPS + REMAINING_NATS + REMAINING_LBS + REMAINING_EKS))
+
+          if [ "$TOTAL" -eq 0 ]; then
+            BILL="✅ **Your AWS bill is now $0.** All billable resources destroyed."
+          else
+            BILL="⚠️ **${TOTAL} resources still remain.** Check AWS Console."
+          fi
+
+          {
+            echo "## 🗑️ Infrastructure Destroyed"
+            echo ""
+            echo "### Remaining Resources (should all be 0)"
+            echo ""
+            echo "| Resource | Remaining | Status |"
+            echo "|---|---|---|"
+            echo "| EC2 Instances | ${REMAINING_EC2} | $([ $REMAINING_EC2 -eq 0 ] && echo '✅' || echo '❌') |"
+            echo "| EBS Volumes | ${REMAINING_VOLS} | $([ $REMAINING_VOLS -eq 0 ] && echo '✅' || echo '❌') |"
+            echo "| Elastic IPs | ${REMAINING_EIPS} | $([ $REMAINING_EIPS -eq 0 ] && echo '✅' || echo '❌') |"
+            echo "| NAT Gateways | ${REMAINING_NATS} | $([ $REMAINING_NATS -eq 0 ] && echo '✅' || echo '❌') |"
+            echo "| Load Balancers | ${REMAINING_LBS} | $([ $REMAINING_LBS -eq 0 ] && echo '✅' || echo '❌') |"
+            echo "| EKS Clusters | ${REMAINING_EKS} | $([ $REMAINING_EKS -eq 0 ] && echo '✅' || echo '❌') |"
+            echo ""
+            echo "### 💰 ${BILL}"
+            echo ""
+            echo "---"
+            echo ""
+            echo "**What remains (costs \$0):**"
+            echo "- S3 bucket (terraform state)"
+            echo "- DynamoDB table (state lock)"
+            echo "- IAM Role + OIDC Provider"
+            echo "- ACM Certificate"
+            echo "- Route53 Hosted Zone (\$0.50/month)"
+            echo ""
+            echo "> To recreate: Run this workflow → select **apply**"
+          } >> "$GITHUB_STEP_SUMMARY"

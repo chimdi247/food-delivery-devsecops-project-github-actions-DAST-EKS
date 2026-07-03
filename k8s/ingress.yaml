@@ -1,0 +1,58 @@
+# ═══════════════════════════════════════════════════════════════════
+# Ingress — Uses EKS Auto Mode ALB (no manual LB controller needed)
+# ═══════════════════════════════════════════════════════════════════
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: food-delivery-ingress
+  namespace: food-delivery
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/group.name: food-delivery
+spec:
+  ingressClassName: alb
+  tls:
+    - hosts:
+        - tagent.cfd
+        - admin.tagent.cfd
+  rules:
+    # Frontend
+    - host: tagent.cfd
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: food-delivery-backend
+                port:
+                  number: 4000
+          - path: /images
+            pathType: Prefix
+            backend:
+              service:
+                name: food-delivery-backend
+                port:
+                  number: 4000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: food-delivery-frontend
+                port:
+                  number: 80
+    # Admin panel
+    - host: admin.tagent.cfd
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: food-delivery-admin
+                port:
+                  number: 80

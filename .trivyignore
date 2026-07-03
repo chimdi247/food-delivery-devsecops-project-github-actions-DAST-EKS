@@ -1,0 +1,6 @@
+# Trivy Ignore File — False positives or accepted risks
+# Format: CVE-ID or vulnerability ID, one per line
+# Add comment above each entry explaining why it's acceptable
+
+# Example (uncomment and add real CVEs if needed):
+# CVE-2023-XXXXX  # Low severity, no exploit available, fix pending upstream

@@ -1,0 +1,51 @@
+# Kiro IDE
+.kiro/
+
+# ZAP scan reports
+.zap/
+
+# Windows junk
+nul
+Thumbs.db
+desktop.ini
+
+# Environment files (secrets)
+.env
+*.env.local
+*.env.production
+
+# Node modules
+node_modules/
+npm-debug.log*
+
+# Build output
+dist/
+build/
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.tfvars
+terraform/.terraform.lock.hcl
+terraform/tfplan
+terraform/plan_output.txt
+
+# Docker
+*.tar
+
+# OS files
+.DS_Store
+*.swp
+*.swo
+
+# IDE
+.vscode/
+.idea/
+
+# Coverage
+coverage/
+
+# Uploads (keep folder, ignore contents)
+backend/uploads/*
+!backend/uploads/.gitkeep

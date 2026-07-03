@@ -1,0 +1,483 @@
+name: DevSecOps Pipeline - Food Delivery (Production)
+
+# ═══════════════════════════════════════════════════════════════════
+# PRODUCTION LEVEL PIPELINE
+# - ALL secrets from AWS Secrets Manager (ZERO hardcoding)
+# - OIDC authentication (no static keys)
+# - SonarQube running on bastion server
+# - 10 stages, fully automated
+#
+# TRIGGERS:
+#   - PR to master    → Runs scan stages (1-6) only, no deploy
+#   - Manual dispatch → Runs full pipeline including deploy
+#   - Push to master  → Does NOT trigger (you deploy manually)
+# ═══════════════════════════════════════════════════════════════════
+
+on:
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - "terraform/**"
+      - "*.md"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "What do you want to do?"
+        required: true
+        default: "scan-only"
+        type: choice
+        options:
+          - scan-only
+          - deploy
+
+env:
+  ECR_REGISTRY: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
+  ECR_REPOSITORY_BACKEND: food-delivery-backend
+  ECR_REPOSITORY_FRONTEND: food-delivery-frontend
+  ECR_REPOSITORY_ADMIN: food-delivery-admin
+  IMAGE_TAG: ${{ github.sha }}
+
+permissions:
+  id-token: write
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════
+  # STAGE 1: SECRET SCANNING (Episode 04)
+  # ═══════════════════════════════════════════════════════════════════
+  secret-scan:
+    name: "Stage 1: Secret Scanning (Gitleaks)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ═══════════════════════════════════════════════════════════════════
+  # STAGE 2: SAST — SonarQube (Secrets from AWS Secrets Manager)
+  # ═══════════════════════════════════════════════════════════════════
+  sast-scan:
+    name: "Stage 2: SAST (SonarQube)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Get SonarQube secrets from AWS Secrets Manager
+        id: sonar-secrets
+        run: |
+          SECRETS=$(aws secretsmanager get-secret-value \
+            --secret-id food-delivery/pipeline \
+            --query SecretString --output text)
+          echo "SONAR_TOKEN=$(echo $SECRETS | jq -r '.SONAR_TOKEN')" >> $GITHUB_ENV
+          echo "SONAR_HOST_URL=$(echo $SECRETS | jq -r '.SONAR_HOST_URL')" >> $GITHUB_ENV
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
+
+  # ═══════════════════════════════════════════════════════════════════
+  # STAGE 3: DEPENDENCY SCAN — SCA (Episode 03)
+  # ═══════════════════════════════════════════════════════════════════
+  dependency-scan:
+    name: "Stage 3: Dependency Scan (Trivy FS)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Trivy Filesystem Scan - Backend
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "./backend"
+          format: "table"
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+
+      - name: Trivy Filesystem Scan - Frontend
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "./frontend"
+          format: "table"
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+
+      - name: Trivy Filesystem Scan - Admin
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "./admin"
+          format: "table"
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+
+  # ═══════════════════════════════════════════════════════════════════
+  # STAGE 4: BUILD DOCKER IMAGES (Episode 05)
+  # ═══════════════════════════════════════════════════════════════════
+  build-images:
+    name: "Stage 4: Build Docker Images"
+    runs-on: ubuntu-latest
+    needs: [secret-scan, sast-scan, dependency-scan]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Backend Image
+        run: |
+          docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_BACKEND }}:${{ env.IMAGE_TAG }} ./backend
+          docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_BACKEND }}:latest ./backend
+
+      - name: Build Frontend Image
+        run: |
+          docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_FRONTEND }}:${{ env.IMAGE_TAG }} ./frontend
+          docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_FRONTEND }}:latest ./frontend
+
+      - name: Build Admin Image
+        run: |
+          docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_ADMIN }}:${{ env.IMAGE_TAG }} ./admin
+          docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_ADMIN }}:latest ./admin
+
+      - name: Save images for next stages
+        run: |
+          docker save ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_BACKEND }}:${{ env.IMAGE_TAG }} -o backend-image.tar
+          docker save ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_FRONTEND }}:${{ env.IMAGE_TAG }} -o frontend-image.tar
+          docker save ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_ADMIN }}:${{ env.IMAGE_TAG }} -o admin-image.tar
+
+      - name: Upload image artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-images
+          path: |
+            backend-image.tar
+            frontend-image.tar
+            admin-image.tar
+          retention-days: 1
+
+  # ═══════════════════════════════════════════════════════════════════
+  # STAGE 5: CONTAINER IMAGE SCAN (Episode 05)
+  # ═══════════════════════════════════════════════════════════════════
+  image-scan:
+    name: "Stage 5: Container Image Scan (Trivy)"
+    runs-on: ubuntu-latest
+    needs: [build-images]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-images
+
+      - name: Load images
+        run: |
+          docker load -i backend-image.tar
+          docker load -i frontend-image.tar
+          docker load -i admin-image.tar
+
+      - name: Scan Backend Image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_BACKEND }}:${{ env.IMAGE_TAG }}"
+          format: "sarif"
+          output: "trivy-backend.sarif"
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+
+      - name: Scan Frontend Image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_FRONTEND }}:${{ env.IMAGE_TAG }}"
+          format: "sarif"
+          output: "trivy-frontend.sarif"
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+
+      - name: Scan Admin Image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_ADMIN }}:${{ env.IMAGE_TAG }}"
+          format: "sarif"
+          output: "trivy-admin.sarif"
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+
+      - name: Upload Trivy SARIF results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "."
+
+  # ═══════════════════════════════════════════════════════════════════
+  # STAGE 6: IaC SECURITY SCAN (Episode 07)
+  # ═══════════════════════════════════════════════════════════════════
+  iac-scan:
+    name: "Stage 6: IaC Scan (Checkov)"
+    runs-on: ubuntu-latest
+    needs: [build-images]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Checkov - Scan Kubernetes manifests
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: k8s/
+          framework: kubernetes
+          output_format: sarif
+          soft_fail: false
+
+      - name: Checkov - Scan Dockerfiles
+        uses: bridgecrewio/checkov-action@master
+        with:
+          file: backend/Dockerfile
+          framework: dockerfile
+          soft_fail: false
+
+  # ═══════════════════════════════════════════════════════════════════
+  # STAGE 7: PUSH TO AMAZON ECR (Episode 07 — OIDC)
+  # ═══════════════════════════════════════════════════════════════════
+  push-to-ecr:
+    name: "Stage 7: Push to ECR (OIDC)"
+    runs-on: ubuntu-latest
+    needs: [image-scan, iac-scan]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy'
+    steps:
+      - name: Download image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-images
+
+      - name: Load images
+        run: |
+          docker load -i backend-image.tar
+          docker load -i frontend-image.tar
+          docker load -i admin-image.tar
+
+      - name: Configure AWS Credentials (OIDC — No Keys!)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push Backend Image
+        run: |
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_BACKEND }}:${{ env.IMAGE_TAG }}
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_BACKEND }}:latest
+
+      - name: Push Frontend Image
+        run: |
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_FRONTEND }}:${{ env.IMAGE_TAG }}
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_FRONTEND }}:latest
+
+      - name: Push Admin Image
+        run: |
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_ADMIN }}:${{ env.IMAGE_TAG }}
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_ADMIN }}:latest
+
+  # ═══════════════════════════════════════════════════════════════════
+  # STAGE 8: DEPLOY TO KUBERNETES (Episode 06)
+  # Secrets injected from AWS Secrets Manager — ZERO hardcoding
+  # ═══════════════════════════════════════════════════════════════════
+  deploy:
+    name: "Stage 8: Deploy to EKS"
+    runs-on: ubuntu-latest
+    needs: [push-to-ecr]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }} --region ${{ vars.AWS_REGION }}
+
+      - name: Fetch app secrets from AWS Secrets Manager and create K8s secret
+        run: |
+          # Get secrets from AWS Secrets Manager
+          SECRETS=$(aws secretsmanager get-secret-value \
+            --secret-id food-delivery/app-secrets \
+            --query SecretString --output text)
+
+          MONGODB_URI=$(echo $SECRETS | jq -r '.MONGODB_URI')
+          JWT_SECRET=$(echo $SECRETS | jq -r '.JWT_SECRET')
+          STRIPE_KEY=$(echo $SECRETS | jq -r '.STRIPE_SECRET_KEY')
+
+          # Create/update Kubernetes secret from Secrets Manager values
+          kubectl create namespace food-delivery --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl delete secret food-delivery-secrets -n food-delivery --ignore-not-found
+
+          kubectl create secret generic food-delivery-secrets \
+            --namespace food-delivery \
+            --from-literal=mongodb-uri="$MONGODB_URI" \
+            --from-literal=jwt-secret="$JWT_SECRET" \
+            --from-literal=stripe-secret-key="$STRIPE_KEY"
+
+      - name: Deploy to Kubernetes
+        run: |
+          # Update image tags in deployment manifests
+          sed -i "s|IMAGE_TAG_PLACEHOLDER|${{ env.IMAGE_TAG }}|g" k8s/backend-deployment.yaml
+          sed -i "s|IMAGE_TAG_PLACEHOLDER|${{ env.IMAGE_TAG }}|g" k8s/frontend-deployment.yaml
+          sed -i "s|IMAGE_TAG_PLACEHOLDER|${{ env.IMAGE_TAG }}|g" k8s/admin-deployment.yaml
+          sed -i "s|ECR_REGISTRY_PLACEHOLDER|${{ env.ECR_REGISTRY }}|g" k8s/backend-deployment.yaml
+          sed -i "s|ECR_REGISTRY_PLACEHOLDER|${{ env.ECR_REGISTRY }}|g" k8s/frontend-deployment.yaml
+          sed -i "s|ECR_REGISTRY_PLACEHOLDER|${{ env.ECR_REGISTRY }}|g" k8s/admin-deployment.yaml
+
+          # Get ACM certificate ARN for tagent.cfd (created manually in AWS)
+          ACM_ARN=$(aws acm list-certificates --region ${{ vars.AWS_REGION }} \
+            --query "CertificateSummaryList[?DomainName=='tagent.cfd'].CertificateArn" --output text)
+          echo "Using ACM Certificate: $ACM_ARN"
+
+          # Inject ACM ARN into ingress
+          sed -i "/alb.ingress.kubernetes.io\/group.name/a\\    alb.ingress.kubernetes.io/certificate-arn: \"${ACM_ARN}\"" k8s/ingress.yaml
+
+          # Apply manifests
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/storageclass.yaml
+          kubectl apply -f k8s/networkpolicy.yaml
+          kubectl apply -f k8s/backend-deployment.yaml
+          kubectl apply -f k8s/backend-service.yaml
+          kubectl apply -f k8s/frontend-deployment.yaml
+          kubectl apply -f k8s/frontend-service.yaml
+          kubectl apply -f k8s/admin-deployment.yaml
+          kubectl apply -f k8s/admin-service.yaml
+          kubectl apply -f k8s/ingress.yaml
+
+          # Wait for rollouts
+          kubectl rollout status deployment/food-delivery-backend -n food-delivery --timeout=180s
+          kubectl rollout status deployment/food-delivery-frontend -n food-delivery --timeout=120s
+          kubectl rollout status deployment/food-delivery-admin -n food-delivery --timeout=120s
+
+      - name: Get deployment info
+        if: always()
+        run: |
+          echo "=== Deployment Status ==="
+          kubectl get pods -n food-delivery
+          echo ""
+          echo "=== Services ==="
+          kubectl get svc -n food-delivery
+          echo ""
+          echo "=== Ingress (ALB URL) ==="
+          kubectl get ingress -n food-delivery
+
+  # ═══════════════════════════════════════════════════════════════════
+  # STAGE 9: DAST — Dynamic Application Security Testing (Episode 03)
+  # ═══════════════════════════════════════════════════════════════════
+  dast-scan:
+    name: "Stage 9: DAST (OWASP ZAP)"
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Get ALB URL from EKS
+        id: get-url
+        run: |
+          aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }} --region ${{ vars.AWS_REGION }}
+          # Wait for ALB to be provisioned
+          echo "Waiting for ALB to be ready..."
+          sleep 90
+          ALB_URL=$(kubectl get ingress food-delivery-ingress -n food-delivery -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+          if [ -z "$ALB_URL" ]; then
+            echo "ALB not ready yet, using tagent.cfd"
+            ALB_URL="tagent.cfd"
+          fi
+          echo "APP_TARGET_URL=https://$ALB_URL" >> $GITHUB_ENV
+          echo "Target URL: https://$ALB_URL"
+
+      - name: OWASP ZAP - Full Scan
+        uses: zaproxy/action-full-scan@v0.10.0
+        with:
+          target: ${{ env.APP_TARGET_URL }}
+          rules_file_name: ".zap/rules.tsv"
+          cmd_options: "-a"
+          allow_issue_writing: false
+
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-report
+          path: report_html.html
+
+  # ═══════════════════════════════════════════════════════════════════
+  # STAGE 10: RUNTIME MONITORING VALIDATION (Episode 08)
+  # ═══════════════════════════════════════════════════════════════════
+  runtime-validation:
+    name: "Stage 10: Runtime Security (Falco Validation)"
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    steps:
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }} --region ${{ vars.AWS_REGION }}
+
+      - name: Verify Falco is running
+        run: |
+          echo "Checking Falco DaemonSet status..."
+          kubectl get daemonset falco -n falco || {
+            echo "WARNING: Falco not installed. Skipping runtime validation."
+            exit 0
+          }
+          DESIRED=$(kubectl get daemonset falco -n falco -o jsonpath='{.status.desiredNumberScheduled}')
+          READY=$(kubectl get daemonset falco -n falco -o jsonpath='{.status.numberReady}')
+          if [ "$DESIRED" != "$READY" ]; then
+            echo "WARNING: Falco not fully running. Desired: $DESIRED, Ready: $READY"
+          fi
+          echo "✅ Falco is running on $READY nodes."
+
+      - name: Check for critical Falco alerts post-deployment
+        run: |
+          echo "Checking for critical Falco alerts in the last 5 minutes..."
+          CRITICAL_ALERTS=$(kubectl logs -n falco -l app.kubernetes.io/name=falco --since=5m 2>/dev/null | grep -i "Critical" | wc -l || echo "0")
+          if [ "$CRITICAL_ALERTS" -gt "0" ]; then
+            echo "⚠️  WARNING: $CRITICAL_ALERTS critical Falco alerts detected after deployment!"
+            kubectl logs -n falco -l app.kubernetes.io/name=falco --since=5m | grep -i "Critical" | tail -10
+            exit 1
+          fi
+          echo "✅ No critical alerts. Deployment is clean."

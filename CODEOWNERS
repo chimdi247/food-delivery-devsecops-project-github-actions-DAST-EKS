@@ -1,0 +1,20 @@
+# ═══════════════════════════════════════════════════════════════════
+# CODEOWNERS — Security team review for sensitive files (Episode 04)
+# ═══════════════════════════════════════════════════════════════════
+
+# CI/CD Pipeline
+.github/workflows/    @security-team
+
+# Dockerfiles
+**/Dockerfile         @security-team
+
+# Kubernetes manifests
+k8s/                  @security-team
+
+# Security tool configs
+.gitleaks.toml        @security-team
+.trivyignore          @security-team
+sonar-project.properties @security-team
+
+# Authentication & middleware
+backend/middleware/   @security-team

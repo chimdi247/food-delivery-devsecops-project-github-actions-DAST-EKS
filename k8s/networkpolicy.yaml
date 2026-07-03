@@ -1,0 +1,143 @@
+# ═══════════════════════════════════════════════════════════════════
+# Network Policies — Zero Trust (Episode 06)
+# Deny ALL traffic, then allow only what's needed
+# ═══════════════════════════════════════════════════════════════════
+
+# Default deny all ingress and egress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all
+  namespace: food-delivery
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# Allow ingress to frontend on port 80
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-ingress
+  namespace: food-delivery
+spec:
+  podSelector:
+    matchLabels:
+      app: food-delivery-frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 80
+
+---
+# Allow ingress to admin on port 80
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-admin-ingress
+  namespace: food-delivery
+spec:
+  podSelector:
+    matchLabels:
+      app: food-delivery-admin
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 80
+
+---
+# Allow ingress to backend only from frontend and admin pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-ingress
+  namespace: food-delivery
+spec:
+  podSelector:
+    matchLabels:
+      app: food-delivery-backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: food-delivery-frontend
+        - podSelector:
+            matchLabels:
+              app: food-delivery-admin
+      ports:
+        - protocol: TCP
+          port: 4000
+
+---
+# Allow backend egress to MongoDB and DNS only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-egress
+  namespace: food-delivery
+spec:
+  podSelector:
+    matchLabels:
+      app: food-delivery-backend
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow MongoDB Atlas (external) - HTTPS
+    - ports:
+        - protocol: TCP
+          port: 27017
+    # Allow Stripe API (HTTPS)
+    - ports:
+        - protocol: TCP
+          port: 443
+
+---
+# Allow frontend/admin egress to backend only + DNS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-egress
+  namespace: food-delivery
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - food-delivery-frontend
+          - food-delivery-admin
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow traffic to backend
+    - to:
+        - podSelector:
+            matchLabels:
+              app: food-delivery-backend
+      ports:
+        - protocol: TCP
+          port: 4000
