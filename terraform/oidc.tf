@@ -7,13 +7,13 @@
 #
 # Manual steps already done:
 # 1. Created OIDC provider: token.actions.githubusercontent.com
-# 2. Created IAM role: GitHubActions-Terraform-Role
+# 2. Created IAM role: food-delivery-GitHubActions-Terraform-Role
 # 3. Added role ARN to GitHub Variables: AWS_ROLE_ARN
 # ═══════════════════════════════════════════════════════════════════
 
 # Reference the manually created GitHub Actions role
 data "aws_iam_role" "github_actions" {
-  name = "GitHubActions-Terraform-Role"
+  name = "food-delivery-GitHubActions-Terraform-Role"
 }
 
 # ─────────────────────────────────────────────────────────────────

@@ -13,6 +13,6 @@ terraform {
     key            = "production/terraform.tfstate"
     region         = "ap-south-1"
     encrypt        = true
-    dynamodb_table = "terraform-state-lock"
+    dynamodb_table = "food-delivery-terraform-state-lock"
   }
 }

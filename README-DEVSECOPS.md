@@ -93,7 +93,7 @@ Things that stay (cost $0):
 1. Search **"DynamoDB"** in AWS Console → Click it
 2. Click **"Create table"**
 3. Fill in:
-   - Table name: `terraform-state-lock`
+   - Table name: `food-delivery-terraform-state-lock`
    - Partition key: `LockID` (type: **String**)
 4. Leave everything else as default
 5. Click **"Create table"**
@@ -132,12 +132,12 @@ Things that stay (cost $0):
 4. Click **"Next"**
 5. Search and check **`AdministratorAccess`** (for demo — use custom policy in real production)
 6. Click **"Next"**
-7. Role name: `GitHubActions-Terraform-Role`
+7. Role name: `food-delivery-GitHubActions-Terraform-Role`
 8. Click **"Create role"**
 
 **Now edit the trust policy:**
 
-9. Go to **IAM → Roles** → Click on `GitHubActions-Terraform-Role`
+9. Go to **IAM → Roles** → Click on `food-delivery-GitHubActions-Terraform-Role`
 10. Click **"Trust relationships"** tab → Click **"Edit trust policy"**
 11. Replace everything with this (change `YOUR_ACCOUNT_ID` to your 12-digit AWS account ID):
 
@@ -167,7 +167,7 @@ Things that stay (cost $0):
 12. Click **"Update policy"**
 13. Go back to the role → Copy the **ARN** at the top. It looks like:
     ```
-    arn:aws:iam::123456789012:role/GitHubActions-Terraform-Role
+    arn:aws:iam::123456789012:role/food-delivery-GitHubActions-Terraform-Role
     ```
 14. **Save this ARN** — you need it in Step 8.
 
@@ -244,9 +244,9 @@ Things that stay (cost $0):
 |---|---|---|
 | `AWS_REGION` | Your AWS region | `ap-south-1` |
 | `AWS_ACCOUNT_ID` | Your 12-digit AWS account ID | `123456789012` |
-| `AWS_ROLE_ARN` | The role ARN from Step 5 | `arn:aws:iam::123456789012:role/GitHubActions-Terraform-Role` |
+| `AWS_ROLE_ARN` | The role ARN from Step 5 | `arn:aws:iam::123456789012:role/food-delivery-GitHubActions-Terraform-Role` |
 | `TF_STATE_BUCKET` | S3 bucket name from Step 2 | `food-delivery-terraform-state-0001` |
-| `TF_LOCK_TABLE` | DynamoDB table from Step 3 | `terraform-state-lock` |
+| `TF_LOCK_TABLE` | DynamoDB table from Step 3 | `food-delivery-terraform-state-lock` |
 | `EKS_CLUSTER_NAME` | Cluster name | `food-delivery-cluster` |
 | `APP_URL` | Your domain | `tagent.cfd` |
 
