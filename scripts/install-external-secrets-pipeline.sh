@@ -2,19 +2,18 @@
 set -e
 
 # ═══════════════════════════════════════════════════════════════════
-# install-external-secrets.sh
-# Installs External Secrets Operator on EKS
+# install-external-secrets-pipeline.sh
+# Installs External Secrets Operator on EKS (called from GitHub Actions)
 # Syncs secrets from AWS Secrets Manager → Kubernetes Secrets
-# 
-# Usage: bash install-external-secrets.sh
+#
+# Required environment variables:
+#   AWS_REGION       — AWS region (e.g., ap-south-1)
+#   CLUSTER_NAME     — EKS cluster name
 # ═══════════════════════════════════════════════════════════════════
 
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 NC='\033[0m'
-
 info() { echo -e "${GREEN}[INFO]${NC} $1"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 
 NAMESPACE="food-delivery"
 ESO_NAMESPACE="external-secrets"
@@ -22,12 +21,20 @@ AWS_REGION="${AWS_REGION:-ap-south-1}"
 CLUSTER_NAME="${CLUSTER_NAME:-food-delivery-cluster}"
 
 echo "=========================================="
-echo "  EXTERNAL SECRETS OPERATOR — Setup"
+echo "  EXTERNAL SECRETS OPERATOR — Pipeline"
 echo "=========================================="
 echo ""
 
 # ─────────────────────────────────────────────────────────────────
-# Step 1: Install External Secrets Operator via Helm
+# Step 1: Install Helm (if not present)
+# ─────────────────────────────────────────────────────────────────
+if ! command -v helm &> /dev/null; then
+  info "Installing Helm..."
+  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+fi
+
+# ─────────────────────────────────────────────────────────────────
+# Step 2: Install External Secrets Operator via Helm
 # ─────────────────────────────────────────────────────────────────
 info "Installing External Secrets Operator..."
 
@@ -43,14 +50,11 @@ helm upgrade --install external-secrets external-secrets/external-secrets \
 info "External Secrets Operator installed ✅"
 
 # ─────────────────────────────────────────────────────────────────
-# Step 2: Create IRSA (IAM Role for Service Account)
+# Step 3: Create IRSA (IAM Role for Service Account)
 # ─────────────────────────────────────────────────────────────────
-info "Creating IAM Service Account for External Secrets..."
+info "Setting up IAM for External Secrets..."
 
-# Get AWS Account ID
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-
-# Get OIDC Provider
 OIDC_PROVIDER=$(aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} \
   --query "cluster.identity.oidc.issuer" --output text | sed 's|https://||')
 
@@ -75,7 +79,6 @@ cat > /tmp/eso-policy.json <<EOF
 }
 EOF
 
-# Create or update policy
 POLICY_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:policy/food-delivery-eso-policy"
 aws iam create-policy \
   --policy-name food-delivery-eso-policy \
@@ -107,7 +110,6 @@ cat > /tmp/eso-trust.json <<EOF
 }
 EOF
 
-# Create or update role
 ROLE_NAME="food-delivery-eso-role"
 aws iam create-role \
   --role-name ${ROLE_NAME} \
@@ -124,12 +126,13 @@ ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ROLE_NAME}"
 info "IAM Role: ${ROLE_ARN}"
 
 # ─────────────────────────────────────────────────────────────────
-# Step 3: Create Kubernetes Service Account with IRSA annotation
+# Step 4: Create Kubernetes resources
 # ─────────────────────────────────────────────────────────────────
-info "Creating Kubernetes Service Account..."
+info "Creating Kubernetes resources..."
 
 kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
 
+# Service Account with IRSA annotation
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ServiceAccount
@@ -140,11 +143,7 @@ metadata:
     eks.amazonaws.com/role-arn: ${ROLE_ARN}
 EOF
 
-# ─────────────────────────────────────────────────────────────────
-# Step 4: Create SecretStore (connects to AWS Secrets Manager)
-# ─────────────────────────────────────────────────────────────────
-info "Creating SecretStore..."
-
+# SecretStore (connects to AWS Secrets Manager)
 cat <<EOF | kubectl apply -f -
 apiVersion: external-secrets.io/v1beta1
 kind: SecretStore
@@ -162,11 +161,7 @@ spec:
             name: food-delivery-eso-sa
 EOF
 
-# ─────────────────────────────────────────────────────────────────
-# Step 5: Create ExternalSecret (syncs AWS → K8s)
-# ─────────────────────────────────────────────────────────────────
-info "Creating ExternalSecret (syncs AWS Secrets Manager → K8s)..."
-
+# ExternalSecret (syncs AWS Secrets Manager → K8s Secret)
 cat <<EOF | kubectl apply -f -
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
@@ -197,16 +192,12 @@ spec:
 EOF
 
 # ─────────────────────────────────────────────────────────────────
-# Verify
+# Step 5: Verify
 # ─────────────────────────────────────────────────────────────────
 info "Waiting for secret sync..."
-sleep 10
+sleep 15
 
-echo ""
-info "Checking ExternalSecret status:"
 kubectl get externalsecret -n ${NAMESPACE}
-echo ""
-info "Checking synced Kubernetes secret:"
 kubectl get secret food-delivery-secrets -n ${NAMESPACE}
 
 echo ""
@@ -214,11 +205,4 @@ echo "=========================================="
 echo "  ✅ EXTERNAL SECRETS SETUP COMPLETE!"
 echo "=========================================="
 echo ""
-info "Secrets are now auto-synced from AWS Secrets Manager every 1 hour."
-info "To force refresh: kubectl annotate externalsecret food-delivery-secrets -n ${NAMESPACE} force-sync=\$(date +%s) --overwrite"
-echo ""
-info "Update secrets in AWS Secrets Manager:"
-echo "  aws secretsmanager put-secret-value \\"
-echo "    --secret-id food-delivery/app-secrets \\"
-echo "    --secret-string '{\"MONGODB_URI\":\"your-uri\",\"JWT_SECRET\":\"your-secret\",\"STRIPE_SECRET_KEY\":\"your-stripe-key\"}'"
-echo ""
+info "Secrets auto-sync from AWS Secrets Manager every 1 hour."

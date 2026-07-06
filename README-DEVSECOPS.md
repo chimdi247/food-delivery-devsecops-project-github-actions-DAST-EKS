@@ -1,4 +1,4 @@
-# Food Delivery — End-to-End DevSecOps Deployment Guide
+# Food Delivery — DevSecOps Project (Step-by-Step Guide)
 
 ## Domain: `tagent.cfd` | Branch: `master`
 
@@ -12,13 +12,13 @@
 
 ## What This Project Does
 
-When you push code → GitHub Actions runs **10 security stages** → deploys to **AWS EKS** → app is live at `https://tagent.cfd`
+You push code → GitHub Actions runs **10 security stages** → deploys to **AWS EKS** → app is live at `https://tagent.cfd`
 
-When you click **destroy** → everything is deleted → your AWS bill becomes **$0**
+You click **destroy** → everything is deleted → your AWS bill becomes **$0**
 
 ---
 
-## What Gets Created When You Click "Apply"
+## What Gets Created (Automatically by Terraform)
 
 | # | Resource | Purpose | Cost/Day |
 |---|----------|---------|----------|
@@ -29,7 +29,7 @@ When you click **destroy** → everything is deleted → your AWS bill becomes *
 | 5 | NAT Gateway | Internet access for private subnets | ~$1.08 |
 | 6 | Elastic IP | Static IP for bastion | ~$0.12 |
 | 7 | EKS Cluster (Auto Mode) | Kubernetes — runs your app | ~$2.40 |
-| 8 | Bastion EC2 (t3.medium) | SonarQube + kubectl access | ~$1.00 |
+| 8 | Bastion EC2 (t3.medium) | SonarQube + kubectl (tools auto-installed) | ~$1.00 |
 | 9 | 3 ECR Repositories | Stores Docker images | $0 |
 | 10 | AWS Secrets Manager (4 secrets) | Stores all passwords | ~$0.05 |
 | 11 | KMS Key | Encrypts EKS secrets | ~$0.03 |
@@ -52,11 +52,11 @@ Things that stay (cost $0):
 
 ---
 
-## Step-by-Step Deployment (Don't Skip Any Step!)
+## Step-by-Step Deployment
 
 ---
 
-### PART 1: AWS Console Setup (Do This Once, Never Again)
+### PART 1: AWS Console Setup (One Time Only)
 
 ---
 
@@ -88,7 +88,7 @@ Things that stay (cost $0):
 
 #### Step 3: Create DynamoDB Table (State Lock)
 
-**Why:** Prevents two people from running Terraform at the same time (would corrupt state).
+**Why:** Prevents two people from running Terraform at the same time.
 
 1. Search **"DynamoDB"** in AWS Console → Click it
 2. Click **"Create table"**
@@ -122,7 +122,7 @@ Things that stay (cost $0):
 
 #### Step 5: Create IAM Role for GitHub Actions
 
-**Why:** This role has permissions to create/delete AWS resources. GitHub Actions assumes this role via OIDC.
+**Why:** This role has permissions to create/delete AWS resources. GitHub Actions uses this role via OIDC (no passwords needed).
 
 1. Go to **IAM** → Left sidebar → **"Roles"** → Click **"Create role"**
 2. Select **"Web identity"**
@@ -130,7 +130,7 @@ Things that stay (cost $0):
    - Identity provider: `token.actions.githubusercontent.com`
    - Audience: `sts.amazonaws.com`
 4. Click **"Next"**
-5. Search and check **`AdministratorAccess`** (for demo — use custom policy in real production)
+5. Search and check **`AdministratorAccess`**
 6. Click **"Next"**
 7. Role name: `food-delivery-GitHubActions-Terraform-Role`
 8. Click **"Create role"**
@@ -156,7 +156,7 @@ Things that stay (cost $0):
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
         },
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:arumullayaswanth/Food-Delivery:*"
+          "token.actions.githubusercontent.com:sub": "repo:arumullayaswanth/food-delivery-devsecops-project:*"
         }
       }
     }
@@ -177,7 +177,7 @@ Things that stay (cost $0):
 
 #### Step 6: Create ACM Certificate (HTTPS for tagent.cfd)
 
-**Why:** So your website has HTTPS (the lock icon). ALB uses this certificate.
+**Why:** So your website has HTTPS (the lock icon in browser).
 
 1. Search **"Certificate Manager"** in AWS Console → Click it
 2. Click **"Request a certificate"**
@@ -189,11 +189,9 @@ Things that stay (cost $0):
 5. Validation method: **DNS validation**
 6. Click **"Request"**
 7. You'll see the certificate with status "Pending validation"
-8. Click on the certificate → Click **"Create records in Route 53"** (if you've already created the hosted zone in Step 7)
-   - OR: Copy the CNAME records and add them to your DNS manually
-9. Wait 5-30 minutes → Status changes to **"Issued"** ✅
+8. **Don't close this page** — you need it in Step 7
 
-✅ Done!
+✅ Certificate requested! (It will be validated after Step 7)
 
 ---
 
@@ -217,10 +215,11 @@ Things that stay (cost $0):
 6. **Go to your domain registrar** (where you bought `tagent.cfd`) → Update nameservers to these 4 values
 7. Wait 5-30 minutes for DNS propagation
 
-**Now validate the ACM certificate (if not done in Step 6):**
-8. Go back to Certificate Manager → Click on your certificate
+**Now validate the ACM certificate:**
+
+8. Go back to **Certificate Manager** → Click on your certificate
 9. Click **"Create records in Route 53"** → Click **"Create records"**
-10. Wait for status: **Issued** ✅
+10. Wait for certificate status: **Issued** ✅
 
 ✅ Done!
 
@@ -232,12 +231,12 @@ Things that stay (cost $0):
 
 #### Step 8: Add GitHub Variables
 
-**Why:** The pipeline reads these values at runtime. Nothing is hardcoded in code.
+**Why:** The pipeline reads these values when it runs. Nothing is hardcoded in code.
 
-1. Go to your GitHub repo: `github.com/arumullayaswanth/Food-Delivery`
+1. Go to your GitHub repo: `github.com/arumullayaswanth/food-delivery-devsecops-project`
 2. Click **Settings** (tab at top)
 3. Left sidebar → **Secrets and variables** → Click **"Actions"**
-4. Click the **"Variables"** tab (NOT Secrets!)
+4. Click the **"Variables"** tab
 5. Click **"New repository variable"** for EACH of these:
 
 | Variable Name | What To Put | Example |
@@ -250,28 +249,17 @@ Things that stay (cost $0):
 | `EKS_CLUSTER_NAME` | Cluster name | `food-delivery-cluster` |
 | `APP_URL` | Your domain | `tagent.cfd` |
 
-**That's it! No GitHub Secrets needed. All sensitive values come from AWS Secrets Manager.**
+**No GitHub Secrets needed. All sensitive values come from AWS Secrets Manager.**
 
 ✅ Done!
 
 ---
 
-### PART 3: Deploy Infrastructure (One Click)
+### PART 3: Create Infrastructure (One Click)
 
 ---
 
-#### Step 9: Push Code to GitHub
-
-```bash
-cd Food-Delivery
-git add .
-git commit -m "feat: production devsecops pipeline"
-git push origin master
-```
-
----
-
-#### Step 10: Create Infrastructure (Click Apply)
+#### Step 9: Run Terraform Apply (Creates Everything)
 
 1. Go to your GitHub repo → Click **"Actions"** tab
 2. Left sidebar → Click **"EKS Terraform"**
@@ -280,7 +268,18 @@ git push origin master
 5. Click **"Run workflow"** (green button)
 6. **Wait ~15-20 minutes** (EKS cluster takes time)
 7. When it's green ✅ → Click on the run → Click **"Summary"** tab
-8. You'll see everything that was created, the cost estimate, and connection commands
+8. You'll see everything that was created, cost estimate, and connection commands
+
+**What happens automatically:**
+- VPC + subnets created
+- EKS cluster created (Auto Mode — no node groups to manage)
+- 3 ECR repositories created
+- Bastion EC2 created → **tool.sh runs automatically** (installs kubectl, Helm, Docker, SonarQube)
+- Secrets Manager secrets created (with placeholder values)
+- KMS key created
+- All IAM policies attached
+- **External Secrets Operator installed** (auto-syncs AWS Secrets Manager → Kubernetes)
+- **Falco installed** (runtime security monitoring)
 
 ✅ Infrastructure is live!
 
@@ -290,7 +289,9 @@ git push origin master
 
 ---
 
-#### Step 11: Connect to Bastion (SSM — No SSH Key Needed)
+#### Step 10: Connect to Bastion (SSM — No SSH Key Needed)
+
+**Why:** You need to access the bastion to configure SonarQube and External Secrets.
 
 ```bash
 # Find bastion instance ID
@@ -304,33 +305,24 @@ aws ssm start-session --target $INSTANCE_ID --region ap-south-1
 
 **If SSM doesn't work**, wait 5 minutes for the instance to finish booting.
 
----
-
-#### Step 12: Run tool.sh (If Not Already Run by User Data)
-
-Inside the bastion session:
-
-```bash
-sudo su - ec2-user
-sudo bash /home/ec2-user/scripts/tool.sh
-```
-
-This installs: kubectl, eksctl, Helm, AWS CLI, Docker, SonarQube
+**Note:** All tools (kubectl, eksctl, Helm, AWS CLI, Docker, SonarQube) are already installed automatically via user data. No manual installation needed.
 
 ---
 
-#### Step 13: Connect to EKS from Bastion
+#### Step 11: Connect to EKS from Bastion
 
 ```bash
 aws eks update-kubeconfig --name food-delivery-cluster --region ap-south-1
 kubectl get nodes
 ```
 
-**With EKS Auto Mode**: You'll see no nodes yet. Nodes appear when you deploy pods.
+**With EKS Auto Mode**: You'll see no nodes yet. Nodes appear automatically when you deploy pods.
 
 ---
 
-#### Step 14: Setup SonarQube
+#### Step 12: Setup SonarQube
+
+**Why:** SonarQube is already running (Docker container started automatically). You just need to login and generate a token.
 
 1. Get bastion public IP:
 ```bash
@@ -340,35 +332,27 @@ curl http://169.254.169.254/latest/meta-data/public-ipv4
 2. Open in browser: `http://<BASTION_IP>:9000`
 3. Login: `admin` / `admin`
 4. It asks you to change password → change it
-5. Click **"Create project manually"**
-   - Project display name: `food-delivery`
-   - Project key: `food-delivery`
-6. Click **"Locally"**
-7. Generate a token → **Copy the token** (looks like `squ_abc123...`)
-8. Now store it in AWS Secrets Manager:
+5. Click your profile icon (top-right) → **My Account** → **Security**
+6. Under **Generate Tokens** → Give it a name (e.g., `github-actions`) → Click **Generate**
+7. **Copy the token** (looks like `squ_abc123...`)
+8. Store the token in AWS Secrets Manager:
 
 ```bash
-aws secretsmanager put-secret-value \
+BASTION_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+
+aws secretsmanager update-secret \
   --secret-id food-delivery/pipeline \
   --region ap-south-1 \
-  --secret-string "{\"SONAR_TOKEN\":\"squ_YOUR_TOKEN_HERE\",\"SONAR_HOST_URL\":\"http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):9000\"}"
+  --secret-string "{\"SONAR_TOKEN\":\"squ_YOUR_TOKEN_HERE\",\"SONAR_HOST_URL\":\"http://${BASTION_IP}:9000\"}"
 ```
 
-✅ SonarQube ready! The pipeline will fetch the token from Secrets Manager automatically.
+✅ SonarQube ready! The pipeline fetches the token from Secrets Manager automatically.
 
 ---
 
-#### Step 15: Install External Secrets Operator
+#### Step 13: Put Real Secrets in AWS Secrets Manager
 
-This auto-syncs secrets from AWS Secrets Manager → Kubernetes. No manual `kubectl create secret` needed.
-
-```bash
-bash /home/ec2-user/scripts/install-external-secrets.sh
-```
-
----
-
-#### Step 16: Put Real Secrets in AWS Secrets Manager
+**Why:** Replace the placeholder "CHANGE_ME" values with your actual secrets.
 
 ```bash
 aws secretsmanager put-secret-value \
@@ -377,34 +361,16 @@ aws secretsmanager put-secret-value \
   --secret-string '{
     "MONGODB_URI": "mongodb+srv://YOUR_USER:YOUR_PASS@cluster.mongodb.net/food-delivery",
     "JWT_SECRET": "your-super-strong-jwt-secret-change-this",
-    "STRIPE_SECRET_KEY": "sk_live_your-real-stripe-key"
+    "STRIPE_SECRET_KEY": "your-stripe-secret-key-here"
   }'
 ```
 
-External Secrets Operator syncs this to Kubernetes automatically every 1 hour.
-
-**To force immediate sync:**
+**To force immediate sync to Kubernetes:**
 ```bash
 kubectl annotate externalsecret food-delivery-secrets -n food-delivery force-sync=$(date +%s) --overwrite
 ```
 
----
-
-#### Step 17: Install Falco (Runtime Security)
-
-```bash
-helm repo add falcosecurity https://falcosecurity.github.io/charts
-helm repo update
-helm install falco falcosecurity/falco \
-  --namespace falco --create-namespace \
-  --set driver.kind=ebpf \
-  --set falcosidekick.enabled=true
-```
-
-Verify:
-```bash
-kubectl get pods -n falco
-```
+✅ Secrets are now in Kubernetes!
 
 ---
 
@@ -412,37 +378,37 @@ kubectl get pods -n falco
 
 ---
 
-#### Step 18: Push Any Code Change → Pipeline Runs Automatically
+#### Step 14: Run the DevSecOps Pipeline (Deploy)
 
-```bash
-# Make any small change (or just push)
-git add .
-git commit -m "trigger pipeline"
-git push origin master
-```
+1. Go to **GitHub → Actions** → Left sidebar → Click **"DevSecOps Pipeline - Food Delivery (Production)"**
+2. Click **"Run workflow"**
+3. Select: **`deploy`**
+4. Click **"Run workflow"**
 
-Go to **GitHub → Actions** → Watch the **"DevSecOps Pipeline"** run all 10 stages:
+**What happens automatically (10 stages):**
 
 ```
 Stage 1:  Gitleaks (secret scanning)        ✅
-Stage 2:  SonarQube (code analysis)         ✅
+Stage 2:  SonarQube (code quality)          ✅
 Stage 3:  Trivy (dependency scan)           ✅
 Stage 4:  Docker build (distroless images)  ✅
 Stage 5:  Trivy (image scan)               ✅
 Stage 6:  Checkov (IaC scan)               ✅
-Stage 7:  Push to ECR (OIDC)               ✅
-Stage 8:  Deploy to EKS (secrets from SM)  ✅
+Stage 7:  Push to ECR (OIDC auth)          ✅
+Stage 8:  Deploy to EKS                    ✅
 Stage 9:  OWASP ZAP (DAST)                ✅
 Stage 10: Falco validation                  ✅
 ```
 
+✅ App is deployed!
+
 ---
 
-#### Step 19: Add DNS Records (Point Domain to ALB)
+#### Step 15: Add DNS Records (Point Domain to ALB)
 
-After the pipeline deploys successfully:
+**Why:** Tell Route53 to send traffic from `tagent.cfd` to your load balancer.
 
-1. Get the ALB URL:
+1. Get the ALB URL (from bastion or from pipeline output):
 ```bash
 kubectl get ingress -n food-delivery
 ```
@@ -450,7 +416,7 @@ Copy the ADDRESS (looks like: `k8s-fooddeli-xxx.ap-south-1.elb.amazonaws.com`)
 
 2. Go to **AWS Console → Route 53 → tagent.cfd hosted zone**
 
-3. Create record:
+3. Create record for frontend:
    - Record name: (leave empty — this is for `tagent.cfd`)
    - Record type: **A**
    - Toggle **"Alias"** ON
@@ -459,7 +425,7 @@ Copy the ADDRESS (looks like: `k8s-fooddeli-xxx.ap-south-1.elb.amazonaws.com`)
    - Select your ALB from dropdown
    - Click **"Create records"**
 
-4. Create another record:
+4. Create record for admin panel:
    - Record name: `admin`
    - Record type: **A**
    - Toggle **"Alias"** ON
@@ -471,7 +437,7 @@ Copy the ADDRESS (looks like: `k8s-fooddeli-xxx.ap-south-1.elb.amazonaws.com`)
    - `https://tagent.cfd/api/food` → Backend API ✅
    - `https://admin.tagent.cfd` → Admin Panel ✅
 
-✅ **YOUR APP IS LIVE IN PRODUCTION!** 🎉
+✅ **YOUR APP IS LIVE!** 🎉
 
 ---
 
@@ -479,7 +445,7 @@ Copy the ADDRESS (looks like: `k8s-fooddeli-xxx.ap-south-1.elb.amazonaws.com`)
 
 ---
 
-#### Step 20: One-Click Destroy
+#### Step 16: One-Click Destroy
 
 1. Go to **GitHub → Actions** → Left sidebar → **"EKS Terraform"**
 2. Click **"Run workflow"**
@@ -487,26 +453,25 @@ Copy the ADDRESS (looks like: `k8s-fooddeli-xxx.ap-south-1.elb.amazonaws.com`)
 4. In "confirm_destroy" field: type **`yes`**
 5. Click **"Run workflow"**
 6. Wait ~10-15 minutes
-7. Check the **Summary** tab — it shows a table verifying everything is deleted
 
-**What happens during destroy:**
+**What happens automatically:**
 - Uninstalls all Helm releases (Falco, External Secrets)
 - Deletes all Kubernetes services/ingresses (removes ALBs)
 - Deletes all PVCs (removes EBS volumes)
 - Runs `terraform destroy` (removes all infrastructure)
-- Post-destroy cleanup: catches any orphaned LBs, EBS volumes, EIPs, NAT gateways, snapshots
-- Final verification: checks if anything billable remains
+- Cleans up orphaned LBs, EBS volumes, EIPs, NAT gateways, snapshots
+- Final verification: confirms everything is deleted
 
-**After destroy, your bill = $0** (Route53 zone = $0.50/month, everything else gone)
+✅ **Bill = $0**
 
 ---
 
-#### Step 21: Recreate Later (When You Need It Again)
+#### Step 17: Recreate Later (When You Need It Again)
 
 1. Go to **GitHub → Actions → EKS Terraform**
 2. Run workflow → Select **`apply`**
 3. Wait 15-20 minutes
-4. Everything comes back (repeat Steps 11-19)
+4. Everything comes back (repeat Steps 10-17)
 
 ---
 
@@ -546,46 +511,6 @@ kubectl annotate externalsecret food-delivery-secrets -n food-delivery force-syn
 
 ---
 
-## File Structure
-
-```
-Food-Delivery/
-├── .github/workflows/
-│   ├── terraform-infra.yml        ← One-click apply/destroy (OIDC)
-│   ├── devsecops-pipeline.yml     ← 10-stage security pipeline
-│   └── dependabot.yml             ← Auto-update dependencies
-├── terraform/
-│   ├── provider.tf + backend.tf   ← AWS + S3 state
-│   ├── vpc.tf                     ← Network
-│   ├── eks.tf                     ← EKS Auto Mode
-│   ├── ecr.tf                     ← Image registries
-│   ├── bastion.tf                 ← Jump server + SonarQube
-│   ├── secrets-manager.tf         ← All secrets
-│   ├── oidc.tf                    ← GitHub → AWS trust
-│   ├── outputs.tf                 ← Shows what was created
-│   └── variables.tf               ← Configuration
-├── k8s/
-│   ├── namespace.yaml             ← PSS restricted
-│   ├── *-deployment.yaml          ← Hardened pods (3 apps)
-│   ├── *-service.yaml             ← ClusterIP services
-│   ├── ingress.yaml               ← ALB + HTTPS (tagent.cfd)
-│   ├── networkpolicy.yaml         ← Zero-trust networking
-│   └── storageclass.yaml          ← EBS gp3
-├── scripts/
-│   ├── tool.sh                    ← Bastion setup
-│   ├── install-external-secrets.sh ← Auto-sync secrets
-│   └── uninstall-helm.sh          ← Cleanup
-├── backend/Dockerfile             ← Distroless Node.js
-├── frontend/Dockerfile            ← Distroless nginx
-├── admin/Dockerfile               ← Distroless nginx
-├── .gitleaks.toml                 ← Secret scanning rules
-├── sonar-project.properties       ← SonarQube config
-├── CODEOWNERS                     ← Security team reviews
-└── README-DEVSECOPS.md            ← This file
-```
-
----
-
 ## Security Summary
 
 | What | How |
@@ -605,15 +530,58 @@ Food-Delivery/
 
 ---
 
+## File Structure
+
+```
+food-delivery-devsecops-project/
+├── .github/workflows/
+│   ├── terraform-infra.yml        ← One-click apply/destroy
+│   ├── devsecops-pipeline.yml     ← 10-stage security pipeline
+│   └── dependabot.yml             ← Auto-update dependencies
+├── terraform/
+│   ├── provider.tf + backend.tf   ← AWS + S3 state
+│   ├── vpc.tf                     ← Network
+│   ├── eks.tf                     ← EKS Auto Mode
+│   ├── ecr.tf                     ← Image registries
+│   ├── bastion.tf                 ← Jump server + SonarQube
+│   ├── secrets-manager.tf         ← All secrets
+│   ├── oidc.tf                    ← GitHub → AWS trust (references only)
+│   ├── outputs.tf                 ← Shows what was created
+│   └── variables.tf               ← Configuration
+├── k8s/
+│   ├── namespace.yaml             ← PSS restricted
+│   ├── *-deployment.yaml          ← Hardened pods (3 apps)
+│   ├── *-service.yaml             ← ClusterIP services
+│   ├── ingress.yaml               ← ALB + HTTPS (tagent.cfd)
+│   ├── networkpolicy.yaml         ← Zero-trust networking
+│   └── storageclass.yaml          ← EBS gp3
+├── scripts/
+│   ├── tool.sh                    ← Bastion setup (runs automatically)
+│   ├── install-external-secrets.sh ← Run manually on bastion
+│   └── uninstall-helm.sh          ← Cleanup helper
+├── backend/Dockerfile             ← Distroless Node.js
+├── frontend/Dockerfile            ← Distroless nginx
+├── admin/Dockerfile               ← Distroless nginx
+├── .gitleaks.toml                 ← Secret scanning rules
+├── .pre-commit-config.yaml        ← Pre-commit hooks
+├── .trivyignore                   ← Trivy exceptions
+├── .zap/rules.tsv                 ← OWASP ZAP rules
+├── sonar-project.properties       ← SonarQube config
+├── CODEOWNERS                     ← Security team reviews
+└── README-DEVSECOPS.md            ← This file
+```
+
+---
+
 ## Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
 | SSM won't connect | Wait 5 min for instance to boot. Check IAM role has `AmazonSSMManagedInstanceCore` |
-| SonarQube not loading | SSH via SSM → `docker logs sonarqube` → check if container is running |
+| SonarQube not loading | Connect to bastion → `sudo docker logs sonarqube` → check if container is running |
 | Pipeline fails at SonarQube | Check Secrets Manager has correct SONAR_TOKEN + SONAR_HOST_URL |
 | EKS nodes not appearing | Normal with Auto Mode — nodes appear only when pods are scheduled |
-| Destroy fails | It retries automatically. Orphaned ENIs/SGs are cleaned up in post-destroy steps |
+| Destroy fails | It retries automatically. Orphaned resources cleaned in post-destroy steps |
 | ALB not created | Check ingress has `ingressClassName: alb` and EKS Auto Mode has networking enabled |
 | HTTPS not working | Check ACM certificate status is "Issued" and Route53 CNAME records exist |
 | Secrets not syncing | Run `kubectl describe externalsecret -n food-delivery` to check errors |

@@ -161,6 +161,31 @@ jobs:
         if: github.event.inputs.action == 'apply'
         run: terraform apply -auto-approve -no-color
 
+      - name: Install External Secrets Operator
+        if: github.event.inputs.action == 'apply'
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+        run: |
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/kubectl
+
+          # Connect to EKS
+          aws eks update-kubeconfig --region ${{ vars.AWS_REGION }} --name ${{ vars.EKS_CLUSTER_NAME }}
+
+          # Run install script
+          cd ${{ github.workspace }}
+          chmod +x scripts/install-external-secrets-pipeline.sh
+          bash scripts/install-external-secrets-pipeline.sh
+
+      - name: Install Falco (Runtime Security)
+        if: github.event.inputs.action == 'apply'
+        run: |
+          cd ${{ github.workspace }}
+          chmod +x scripts/install-falco.sh
+          bash scripts/install-falco.sh
+
       - name: Cluster Connection Summary
         if: github.event.inputs.action == 'apply'
         run: |
@@ -272,12 +297,10 @@ jobs:
 
           aws eks update-kubeconfig --region "${{ vars.AWS_REGION }}" --name "${CLUSTER_NAME}"
 
-          # Uninstall all Helm releases
-          helm list -A --short 2>/dev/null | while read -r release; do
-            NS=$(helm list -A --filter "^${release}$" -o json 2>/dev/null | jq -r '.[0].namespace // "default"')
-            echo "Uninstalling Helm release: ${release} (ns: ${NS})"
-            helm uninstall "${release}" -n "${NS}" --wait 2>/dev/null || true
-          done
+          # Run uninstall script (skip confirmation for CI)
+          cd ${{ github.workspace }}
+          chmod +x scripts/uninstall-helm.sh
+          yes y | bash scripts/uninstall-helm.sh all || true
 
       - name: Pre-Destroy — Kubernetes Cleanup
         if: github.event.inputs.action == 'destroy'
