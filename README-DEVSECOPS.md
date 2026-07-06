@@ -509,6 +509,25 @@ kubectl logs -f deployment/food-delivery-frontend -n food-delivery
 kubectl annotate externalsecret food-delivery-secrets -n food-delivery force-sync=$(date +%s) --overwrite
 ```
 
+### Falco (Runtime Security)
+```bash
+# Check if Falco pods are running
+kubectl get pods -n falco
+
+# Check Falco DaemonSet status
+kubectl get daemonset falco -n falco
+
+# View Falco alerts (real-time)
+kubectl logs -f -l app.kubernetes.io/name=falco -n falco
+
+# View only critical/warning alerts
+kubectl logs -l app.kubernetes.io/name=falco -n falco | grep -i "Warning\|Critical\|Error"
+
+# Check Falco Sidekick UI (forward port to access from browser)
+kubectl port-forward svc/falco-falcosidekick-ui -n falco 2802:2802
+# Then open: http://localhost:2802
+```
+
 ---
 
 ## Security Summary
