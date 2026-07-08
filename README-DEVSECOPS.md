@@ -75,7 +75,7 @@ Things that stay (cost $0):
 1. Search **"S3"** in AWS Console search bar → Click it
 2. Click **"Create bucket"**
 3. Fill in:
-   - Bucket name: `food-delivery-terraform-state-0001` (if taken, add random numbers)
+   - Bucket name: `food-delivery-terraform-state-0000`
    - Region: **Asia Pacific (Mumbai) ap-south-1**
 4. Scroll down → **Bucket Versioning** → Click **Enable**
 5. Scroll down → **Default encryption** → Select **SSE-S3 (AES-256)**
@@ -244,7 +244,7 @@ Things that stay (cost $0):
 | `AWS_REGION` | Your AWS region | `ap-south-1` |
 | `AWS_ACCOUNT_ID` | Your 12-digit AWS account ID | `123456789012` |
 | `AWS_ROLE_ARN` | The role ARN from Step 5 | `arn:aws:iam::123456789012:role/food-delivery-GitHubActions-Terraform-Role` |
-| `TF_STATE_BUCKET` | S3 bucket name from Step 2 | `food-delivery-terraform-state-0001` |
+| `TF_STATE_BUCKET` | S3 bucket name from Step 2 | `food-delivery-terraform-state-0000` |
 | `TF_LOCK_TABLE` | DynamoDB table from Step 3 | `food-delivery-terraform-state-lock` |
 | `EKS_CLUSTER_NAME` | Cluster name | `food-delivery-cluster` |
 | `APP_URL` | Your domain | `tagent.cfd` |
