@@ -261,7 +261,7 @@ Things that stay (cost $0):
 #### Step 9: Run Terraform Apply (Creates Everything)
 
 1. Go to your GitHub repo → Click **"Actions"** tab
-2. Left sidebar → Click **"EKS Terraform"**
+2. Left sidebar → Click **"EKS Terraform"** (`terraform-infra.yml`)
 3. Click **"Run workflow"** (right side)
 4. Select: **`apply`**
 5. Click **"Run workflow"** (green button)
@@ -379,7 +379,7 @@ kubectl annotate externalsecret food-delivery-secrets -n food-delivery force-syn
 
 #### Step 14: Run the DevSecOps Pipeline (Deploy)
 
-1. Go to **GitHub → Actions** → Left sidebar → Click **"DevSecOps Pipeline - Food Delivery (Production)"**
+1. Go to **GitHub → Actions** → Left sidebar → Click **"DevSecOps Pipeline - Food Delivery (Production)"** (`devsecops-pipeline.yml`)
 2. Click **"Run workflow"**
 3. Select: **`deploy`**
 4. Click **"Run workflow"**
@@ -446,7 +446,7 @@ Copy the ADDRESS (looks like: `k8s-fooddeli-xxx.ap-south-1.elb.amazonaws.com`)
 
 #### Step 16: One-Click Destroy
 
-1. Go to **GitHub → Actions** → Left sidebar → **"EKS Terraform"**
+1. Go to **GitHub → Actions** → Left sidebar → **"EKS Terraform"** (`terraform-infra.yml`)
 2. Click **"Run workflow"**
 3. Select: **`destroy`**
 4. In "confirm_destroy" field: type **`yes`**
@@ -467,7 +467,7 @@ Copy the ADDRESS (looks like: `k8s-fooddeli-xxx.ap-south-1.elb.amazonaws.com`)
 
 #### Step 17: Recreate Later (When You Need It Again)
 
-1. Go to **GitHub → Actions → EKS Terraform**
+1. Go to **GitHub → Actions → EKS Terraform** (`terraform-infra.yml`)
 2. Run workflow → Select **`apply`**
 3. Wait 15-20 minutes
 4. Everything comes back (repeat Steps 10-17)
