@@ -36,11 +36,23 @@ helm upgrade --install falco falcosecurity/falco \
   --set driver.kind=ebpf \
   --set falcosidekick.enabled=true
 
-echo "Waiting for Falco DaemonSet rollout..."
-kubectl rollout status daemonset/falco -n falco --timeout=600s || {
-  echo "WARNING: Falco rollout timed out. Checking status..."
-  kubectl get pods -n falco
-}
+echo "Waiting for Falco pods to be ready..."
+for i in $(seq 1 60); do
+  READY=$(kubectl get pods -n falco -l app.kubernetes.io/name=falco \
+    --no-headers 2>/dev/null | grep -c "Running" || echo "0")
+  if [ "$READY" -gt "0" ]; then
+    echo "  ✅ Falco pod is Running!"
+    break
+  fi
+  if [ "$i" -eq "60" ]; then
+    echo "  WARNING: Timed out waiting for Falco pods."
+    kubectl get pods -n falco
+    echo "  Continuing — Falco may start once node is ready..."
+    break
+  fi
+  echo "  Waiting... ($i/60)"
+  sleep 10
+done
 
 # ─────────────────────────────────────────────────────────────────
 # Step 3: Verify
