@@ -39,7 +39,7 @@ helm upgrade --install falco falcosecurity/falco \
   --create-namespace \
   --set driver.kind=ebpf \
   --set falcosidekick.enabled=true \
-  --wait --timeout 300s
+  --wait --timeout 600s
 
 # ─────────────────────────────────────────────────────────────────
 # Step 3: Verify

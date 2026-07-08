@@ -41,11 +41,22 @@ info "Installing External Secrets Operator..."
 helm repo add external-secrets https://charts.external-secrets.io 2>/dev/null || true
 helm repo update
 
+info "Waiting for EKS Auto Mode nodes to be ready (this may take a few minutes)..."
+for i in $(seq 1 30); do
+  NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | grep -c "Ready" || echo "0")
+  if [ "$NODE_COUNT" -gt "0" ]; then
+    info "Nodes ready: $NODE_COUNT"
+    break
+  fi
+  echo "  Waiting for nodes... attempt $i/30"
+  sleep 20
+done
+
 helm upgrade --install external-secrets external-secrets/external-secrets \
   --namespace ${ESO_NAMESPACE} \
   --create-namespace \
   --set installCRDs=true \
-  --wait
+  --wait --timeout 600s
 
 info "External Secrets Operator installed ✅"
 
