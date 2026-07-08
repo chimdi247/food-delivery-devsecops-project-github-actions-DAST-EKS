@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # ═══════════════════════════════════════════════════════════════════
 # install-external-secrets-pipeline.sh
@@ -7,16 +7,13 @@ set -e
 # Syncs secrets from AWS Secrets Manager → Kubernetes Secrets
 #
 # Required environment variables:
-#   AWS_REGION       — AWS region (e.g., ap-south-1)
-#   CLUSTER_NAME     — EKS cluster name
+#   CLUSTER_NAME   — EKS cluster name
+#   AWS_REGION     — AWS region (e.g., ap-south-1)
 # ═══════════════════════════════════════════════════════════════════
-
-GREEN='\033[0;32m'
-NC='\033[0m'
-info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 
 NAMESPACE="food-delivery"
 ESO_NAMESPACE="external-secrets"
+ESO_SERVICE_ACCOUNT="external-secrets"
 AWS_REGION="${AWS_REGION:-ap-south-1}"
 CLUSTER_NAME="${CLUSTER_NAME:-food-delivery-cluster}"
 
@@ -26,51 +23,77 @@ echo "=========================================="
 echo ""
 
 # ─────────────────────────────────────────────────────────────────
-# Step 1: Install Helm (if not present)
+# Step 1: Verify cluster exists and connect
+# ─────────────────────────────────────────────────────────────────
+echo "Configuring kubectl for cluster: ${CLUSTER_NAME}"
+
+if ! aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+  echo "ERROR: Cluster ${CLUSTER_NAME} was not found in region ${AWS_REGION}."
+  echo "Clusters currently visible in this account and region:"
+  aws eks list-clusters --region "${AWS_REGION}" || true
+  exit 1
+fi
+
+echo "Waiting for cluster to become ACTIVE..."
+aws eks wait cluster-active --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
+
+aws eks update-kubeconfig --region "${AWS_REGION}" --name "${CLUSTER_NAME}"
+
+# ─────────────────────────────────────────────────────────────────
+# Step 2: Wait for nodes to be ready (EKS Auto Mode spins up nodes on demand)
+# ─────────────────────────────────────────────────────────────────
+echo "Waiting for nodes to be Ready (EKS Auto Mode may take a few minutes)..."
+kubectl wait --for=condition=Ready nodes --all --timeout=600s || {
+  echo "WARNING: Nodes not ready yet. Proceeding anyway (Helm will wait for pods)..."
+}
+
+# ─────────────────────────────────────────────────────────────────
+# Step 3: Install Helm (if not present)
 # ─────────────────────────────────────────────────────────────────
 if ! command -v helm &> /dev/null; then
-  info "Installing Helm..."
+  echo "Installing Helm..."
   curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 fi
 
 # ─────────────────────────────────────────────────────────────────
-# Step 2: Install External Secrets Operator via Helm
+# Step 4: Install External Secrets Operator via Helm
 # ─────────────────────────────────────────────────────────────────
-info "Installing External Secrets Operator..."
-
+echo "Adding External Secrets Helm repo..."
 helm repo add external-secrets https://charts.external-secrets.io 2>/dev/null || true
 helm repo update
 
-info "Waiting for EKS Auto Mode nodes to be ready (this may take a few minutes)..."
-for i in $(seq 1 30); do
-  NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | grep -c "Ready" || echo "0")
-  if [ "$NODE_COUNT" -gt "0" ]; then
-    info "Nodes ready: $NODE_COUNT"
-    break
-  fi
-  echo "  Waiting for nodes... attempt $i/30"
-  sleep 20
-done
-
+echo "Installing External Secrets Operator..."
 helm upgrade --install external-secrets external-secrets/external-secrets \
-  --namespace ${ESO_NAMESPACE} \
+  --namespace "${ESO_NAMESPACE}" \
   --create-namespace \
   --set installCRDs=true \
-  --wait --timeout 600s
+  --set serviceAccount.create=true \
+  --set serviceAccount.name="${ESO_SERVICE_ACCOUNT}"
 
-info "External Secrets Operator installed ✅"
+echo "Waiting for External Secrets deployment to be available..."
+kubectl rollout status deployment/external-secrets \
+  -n "${ESO_NAMESPACE}" --timeout=300s
+
+echo "Verifying External Secrets installation..."
+kubectl get deployment -n "${ESO_NAMESPACE}" external-secrets
+kubectl get pods -n "${ESO_NAMESPACE}"
+kubectl get crd externalsecrets.external-secrets.io
+
+echo ""
+echo "✅ External Secrets Operator installed successfully."
+echo ""
 
 # ─────────────────────────────────────────────────────────────────
-# Step 3: Create IRSA (IAM Role for Service Account)
+# Step 5: Setup IRSA (IAM Role for Service Account)
 # ─────────────────────────────────────────────────────────────────
-info "Setting up IAM for External Secrets..."
+echo "Setting up IAM for External Secrets..."
 
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 OIDC_PROVIDER=$(aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} \
   --query "cluster.identity.oidc.issuer" --output text | sed 's|https://||')
 
-info "Account: ${AWS_ACCOUNT_ID}"
-info "OIDC: ${OIDC_PROVIDER}"
+echo "  Account: ${AWS_ACCOUNT_ID}"
+echo "  OIDC: ${OIDC_PROVIDER}"
 
 # Create IAM policy for Secrets Manager access
 cat > /tmp/eso-policy.json <<EOF
@@ -134,12 +157,12 @@ aws iam attach-role-policy \
   --policy-arn ${POLICY_ARN} 2>/dev/null || true
 
 ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ROLE_NAME}"
-info "IAM Role: ${ROLE_ARN}"
+echo "  IAM Role: ${ROLE_ARN}"
 
 # ─────────────────────────────────────────────────────────────────
-# Step 4: Create Kubernetes resources
+# Step 6: Create Kubernetes resources
 # ─────────────────────────────────────────────────────────────────
-info "Creating Kubernetes resources..."
+echo "Creating Kubernetes resources..."
 
 kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
 
@@ -203,17 +226,17 @@ spec:
 EOF
 
 # ─────────────────────────────────────────────────────────────────
-# Step 5: Verify
+# Step 7: Verify
 # ─────────────────────────────────────────────────────────────────
-info "Waiting for secret sync..."
+echo "Waiting for secret sync..."
 sleep 15
 
 kubectl get externalsecret -n ${NAMESPACE}
-kubectl get secret food-delivery-secrets -n ${NAMESPACE}
+kubectl get secret food-delivery-secrets -n ${NAMESPACE} 2>/dev/null || echo "  (secret will sync after real values are added to AWS Secrets Manager)"
 
 echo ""
 echo "=========================================="
 echo "  ✅ EXTERNAL SECRETS SETUP COMPLETE!"
 echo "=========================================="
 echo ""
-info "Secrets auto-sync from AWS Secrets Manager every 1 hour."
+echo "Secrets auto-sync from AWS Secrets Manager every 1 hour."
