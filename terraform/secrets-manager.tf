@@ -9,8 +9,9 @@
 # Application Secrets (used by EKS pods via External Secrets Operator)
 # ─────────────────────────────────────────────────────────────────
 resource "aws_secretsmanager_secret" "app_secrets" {
-  name        = "food-delivery/app-secrets"
-  description = "Food Delivery application secrets (MongoDB, JWT, Stripe)"
+  name                    = "food-delivery/app-secrets"
+  description             = "Food Delivery application secrets (MongoDB, JWT, Stripe)"
+  recovery_window_in_days = 0
 
   tags = {
     Name = "food-delivery-app-secrets"
@@ -34,8 +35,9 @@ resource "aws_secretsmanager_secret_version" "app_secrets" {
 # SonarQube Secrets (used by GitHub Actions pipeline)
 # ─────────────────────────────────────────────────────────────────
 resource "aws_secretsmanager_secret" "sonarqube" {
-  name        = "food-delivery/sonarqube"
-  description = "SonarQube server credentials"
+  name                    = "food-delivery/sonarqube"
+  description             = "SonarQube server credentials"
+  recovery_window_in_days = 0
 
   tags = {
     Name = "food-delivery-sonarqube"
@@ -58,8 +60,9 @@ resource "aws_secretsmanager_secret_version" "sonarqube" {
 # Database Credentials (for production MongoDB Atlas or DocumentDB)
 # ─────────────────────────────────────────────────────────────────
 resource "aws_secretsmanager_secret" "database" {
-  name        = "food-delivery/database"
-  description = "Database connection credentials"
+  name                    = "food-delivery/database"
+  description             = "Database connection credentials"
+  recovery_window_in_days = 0
 
   tags = {
     Name = "food-delivery-database"
@@ -85,8 +88,9 @@ resource "aws_secretsmanager_secret_version" "database" {
 # GitHub Actions Pipeline Secrets (read by pipeline via OIDC)
 # ─────────────────────────────────────────────────────────────────
 resource "aws_secretsmanager_secret" "pipeline" {
-  name        = "food-delivery/pipeline"
-  description = "CI/CD pipeline configuration secrets"
+  name                    = "food-delivery/pipeline"
+  description             = "CI/CD pipeline configuration secrets"
+  recovery_window_in_days = 0
 
   tags = {
     Name = "food-delivery-pipeline"
