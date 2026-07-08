@@ -78,29 +78,34 @@ helm upgrade --install external-secrets external-secrets/external-secrets \
 echo "Waiting for External Secrets pods to be ready..."
 echo "  (EKS Auto Mode is provisioning a node — this may take 3-5 minutes)"
 
-# Use kubectl wait with condition=available (industry standard for EKS Auto Mode)
-# This waits independently of the deployment's progressDeadlineSeconds
-kubectl wait --for=condition=available deployment/external-secrets \
-  -n "${ESO_NAMESPACE}" --timeout=600s 2>/dev/null || {
-  # Fallback: poll manually if kubectl wait fails
-  echo "  kubectl wait failed, polling manually..."
-  for i in $(seq 1 60); do
-    READY=$(kubectl get deployment external-secrets -n "${ESO_NAMESPACE}" \
-      -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "0")
-    if [ "${READY:-0}" -gt "0" ]; then
-      echo "  ✅ External Secrets deployment is available!"
-      break
-    fi
-    if [ "$i" -eq "60" ]; then
-      echo "  WARNING: Timed out. Current pod status:"
-      kubectl get pods -n "${ESO_NAMESPACE}"
-      echo "  Continuing — pods may become ready shortly..."
-      break
-    fi
+# Use kubectl wait on POD readiness (not deployment availability)
+# Deployment condition=available fails when progressDeadlineSeconds expires
+# But pod condition=ready works once the node is provisioned
+for i in $(seq 1 60); do
+  READY=$(kubectl get pods -n "${ESO_NAMESPACE}" -l app.kubernetes.io/name=external-secrets \
+    -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+  if [ "$READY" = "True" ]; then
+    echo "  ✅ External Secrets pod is Ready!"
+    kubectl get pods -n "${ESO_NAMESPACE}"
+    break
+  fi
+  if [ "$i" -eq "60" ]; then
+    echo "  WARNING: Timed out after 10 minutes. Current status:"
+    kubectl get pods -n "${ESO_NAMESPACE}"
+    kubectl get nodes
+    echo "  Continuing — the pod will become ready once the node is provisioned..."
+    break
+  fi
+  # Show current status every 5 iterations
+  if [ $((i % 5)) -eq 0 ]; then
+    echo "  Status at attempt $i/60:"
+    kubectl get pods -n "${ESO_NAMESPACE}" --no-headers 2>/dev/null || echo "    No pods yet"
+    kubectl get nodes --no-headers 2>/dev/null || echo "    No nodes yet"
+  else
     echo "  Waiting... ($i/60)"
-    sleep 10
-  done
-}
+  fi
+  sleep 10
+done
 
 kubectl get pods -n "${ESO_NAMESPACE}"
 

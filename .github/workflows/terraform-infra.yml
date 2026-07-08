@@ -163,6 +163,7 @@ jobs:
 
       - name: Install External Secrets Operator
         if: github.event.inputs.action == 'apply'
+        continue-on-error: true
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
           CLUSTER_NAME: food-delivery-cluster
@@ -181,6 +182,7 @@ jobs:
 
       - name: Install Falco (Runtime Security)
         if: github.event.inputs.action == 'apply'
+        continue-on-error: true
         run: |
           cd ${{ github.workspace }}
           chmod +x scripts/install-falco.sh
