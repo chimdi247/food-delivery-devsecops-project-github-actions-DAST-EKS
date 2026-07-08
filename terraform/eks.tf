@@ -101,6 +101,10 @@ resource "aws_eks_cluster" "main" {
   # Required when EKS Auto Mode is enabled
   bootstrap_self_managed_addons = false
 
+  access_config {
+    authentication_mode = "API_AND_CONFIG_MAP"
+  }
+
   vpc_config {
     subnet_ids              = concat(aws_subnet.public[*].id, aws_subnet.private[*].id)
     security_group_ids      = [aws_security_group.eks_cluster.id]
