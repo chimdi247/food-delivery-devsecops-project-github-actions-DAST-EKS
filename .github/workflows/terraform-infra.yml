@@ -165,14 +165,14 @@ jobs:
         if: github.event.inputs.action == 'apply'
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
-          CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+          CLUSTER_NAME: food-delivery-cluster
         run: |
           # Install kubectl
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/kubectl
 
           # Connect to EKS
-          aws eks update-kubeconfig --region ${{ vars.AWS_REGION }} --name ${{ vars.EKS_CLUSTER_NAME }}
+          aws eks update-kubeconfig --region ${{ vars.AWS_REGION }} --name food-delivery-cluster
 
           # Run install script
           cd ${{ github.workspace }}

@@ -246,7 +246,6 @@ Things that stay (cost $0):
 | `AWS_ROLE_ARN` | The role ARN from Step 5 | `arn:aws:iam::123456789012:role/food-delivery-GitHubActions-Terraform-Role-0000` |
 | `TF_STATE_BUCKET` | S3 bucket name from Step 2 | `food-delivery-terraform-state-0000` |
 | `TF_LOCK_TABLE` | DynamoDB table from Step 3 | `food-delivery-terraform-state-lock-0000` |
-| `EKS_CLUSTER_NAME` | Cluster name | `food-delivery-cluster` |
 | `APP_URL` | Your domain | `tagent.cfd` |
 
 **No GitHub Secrets needed. All sensitive values come from AWS Secrets Manager.**

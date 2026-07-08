@@ -35,6 +35,7 @@ env:
   ECR_REPOSITORY_BACKEND: food-delivery-backend
   ECR_REPOSITORY_FRONTEND: food-delivery-frontend
   ECR_REPOSITORY_ADMIN: food-delivery-admin
+  EKS_CLUSTER_NAME: food-delivery-cluster
   IMAGE_TAG: ${{ github.sha }}
 
 permissions:
@@ -321,7 +322,7 @@ jobs:
 
       - name: Update kubeconfig
         run: |
-          aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }} --region ${{ vars.AWS_REGION }}
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ vars.AWS_REGION }}
 
       - name: Fetch app secrets from AWS Secrets Manager and create K8s secret
         run: |
@@ -412,7 +413,7 @@ jobs:
       - name: Get ALB URL from EKS
         id: get-url
         run: |
-          aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }} --region ${{ vars.AWS_REGION }}
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ vars.AWS_REGION }}
           # Wait for ALB to be provisioned
           echo "Waiting for ALB to be ready..."
           sleep 90
@@ -455,7 +456,7 @@ jobs:
 
       - name: Update kubeconfig
         run: |
-          aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }} --region ${{ vars.AWS_REGION }}
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ vars.AWS_REGION }}
 
       - name: Verify Falco is running
         run: |
