@@ -37,7 +37,7 @@ helm upgrade --install falco falcosecurity/falco \
   --set falcosidekick.enabled=true
 
 echo "Waiting for Falco DaemonSet rollout..."
-kubectl rollout status daemonset/falco -n falco --timeout=300s || {
+kubectl rollout status daemonset/falco -n falco --timeout=600s || {
   echo "WARNING: Falco rollout timed out. Checking status..."
   kubectl get pods -n falco
 }

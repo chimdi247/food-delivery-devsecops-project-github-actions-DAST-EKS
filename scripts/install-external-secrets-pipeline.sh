@@ -43,8 +43,11 @@ aws eks update-kubeconfig --region "${AWS_REGION}" --name "${CLUSTER_NAME}"
 # Step 2: Wait for nodes to be ready (EKS Auto Mode spins up nodes on demand)
 # ─────────────────────────────────────────────────────────────────
 echo "Waiting for nodes to be Ready (EKS Auto Mode may take a few minutes)..."
-kubectl wait --for=condition=Ready nodes --all --timeout=600s || {
-  echo "WARNING: Nodes not ready yet. Proceeding anyway (Helm will wait for pods)..."
+# EKS Auto Mode only provisions nodes when pods are pending
+# We need to create a workload first, then wait for nodes
+kubectl wait --for=condition=Ready nodes --all --timeout=60s 2>/dev/null || {
+  echo "No nodes yet — EKS Auto Mode will provision nodes once pods are scheduled."
+  echo "Continuing with Helm install (it will trigger node provisioning)..."
 }
 
 # ─────────────────────────────────────────────────────────────────
@@ -71,8 +74,11 @@ helm upgrade --install external-secrets external-secrets/external-secrets \
   --set serviceAccount.name="${ESO_SERVICE_ACCOUNT}"
 
 echo "Waiting for External Secrets deployment to be available..."
+echo "  (EKS Auto Mode is provisioning a node — this may take 3-5 minutes)"
+
+# Wait up to 10 minutes for rollout (Auto Mode node provisioning can take time)
 kubectl rollout status deployment/external-secrets \
-  -n "${ESO_NAMESPACE}" --timeout=300s
+  -n "${ESO_NAMESPACE}" --timeout=600s
 
 echo "Verifying External Secrets installation..."
 kubectl get deployment -n "${ESO_NAMESPACE}" external-secrets
