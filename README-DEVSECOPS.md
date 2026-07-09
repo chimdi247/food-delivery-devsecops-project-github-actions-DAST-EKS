@@ -290,21 +290,26 @@ Things that stay (cost $0):
 
 #### Step 10: Connect to Bastion (SSM — No SSH Key Needed)
 
-**Why:** You need to access the bastion to configure SonarQube and External Secrets.
+**Why:** You need to access the bastion to configure SonarQube and run kubectl commands.
 
+**Option A — AWS Console (easiest):**
+1. Go to **AWS Console → EC2 → Instances**
+2. Select `food-delivery-bastion` → Click **Connect**
+3. Click **Session Manager** tab → Click **Connect**
+4. A terminal opens in your browser — no SSH key needed
+
+**Option B — AWS CLI:**
 ```bash
-# Find bastion instance ID
+# Get the instance ID
 INSTANCE_ID=$(aws ec2 describe-instances \
   --filters "Name=tag:Name,Values=food-delivery-bastion" "Name=instance-state-name,Values=running" \
   --query "Reservations[0].Instances[0].InstanceId" --output text --region ap-south-1)
 
-# Connect (opens a shell in your terminal)
+# Connect
 aws ssm start-session --target $INSTANCE_ID --region ap-south-1
 ```
 
-**If SSM doesn't work**, wait 5 minutes for the instance to finish booting.
-
-**Note:** All tools (kubectl, eksctl, Helm, AWS CLI, Docker, SonarQube) are already installed automatically via user data. No manual installation needed.
+**Note:** All tools (kubectl, Helm, Docker, SonarQube) are already installed automatically via user data. No manual installation needed.
 
 ---
 
@@ -321,29 +326,47 @@ kubectl get nodes
 
 #### Step 12: Setup SonarQube
 
-**Why:** SonarQube is already running (Docker container started automatically). You just need to login and generate a token.
+**Why:** SonarQube is already running (Docker container started automatically via user data). You just need to login and generate a token.
 
-1. Get bastion public IP:
-```bash
-curl http://169.254.169.254/latest/meta-data/public-ipv4
-```
+1. Get bastion public IP from AWS Console → EC2 → Instances → `food-delivery-bastion` → copy **Public IPv4**
 
 2. Open in browser: `http://<BASTION_IP>:9000`
+
 3. Login: `admin` / `admin`
-4. It asks you to change password → change it
-5. Click your profile icon (top-right) → **My Account** → **Security**
-6. Under **Generate Tokens** → Give it a name (e.g., `github-actions`) → Click **Generate**
-7. **Copy the token** (looks like `squ_abc123...`)
-8. Store the token in AWS Secrets Manager:
 
-```bash
-BASTION_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+4. It will ask you to change the password → change it
 
-aws secretsmanager update-secret \
-  --secret-id food-delivery/pipeline \
-  --region ap-south-1 \
-  --secret-string "{\"SONAR_TOKEN\":\"squ_YOUR_TOKEN_HERE\",\"SONAR_HOST_URL\":\"http://${BASTION_IP}:9000\"}"
-```
+5. Click your **profile icon** (top-right corner) → **My Account** → **Security**
+
+6. Under **Generate Tokens**:
+   - Name: `github-actions`
+   - Type: `User Token`
+   - Expires in: `No expiration`
+   - Click **Generate**
+
+7. **Copy the token** (looks like `squ_abc123...`) — you won't see it again
+
+8. Go to **AWS Console → Secrets Manager → `food-delivery/sonarqube`**
+   - Click **Retrieve secret value** → Click **Edit**
+   - Update the values:
+
+   | Key | Value |
+   |-----|-------|
+   | `SONAR_HOST_URL` | `http://<BASTION_IP>:9000` |
+   | `SONAR_TOKEN` | `squ_your_token_here` |
+
+   - Click **Save**
+
+9. Also update **`food-delivery/pipeline`** with the same values:
+   - Go to **Secrets Manager → `food-delivery/pipeline`**
+   - Click **Retrieve secret value** → Click **Edit**
+
+   | Key | Value |
+   |-----|-------|
+   | `SONAR_HOST_URL` | `http://<BASTION_IP>:9000` |
+   | `SONAR_TOKEN` | `squ_your_token_here` |
+
+   - Click **Save**
 
 ✅ SonarQube ready! The pipeline fetches the token from Secrets Manager automatically.
 
@@ -351,20 +374,40 @@ aws secretsmanager update-secret \
 
 #### Step 13: Put Real Secrets in AWS Secrets Manager
 
-**Why:** Replace the placeholder "CHANGE_ME" values with your actual secrets.
+**Why:** Replace the placeholder `CHANGE_ME` values with your actual credentials.
 
-```bash
-aws secretsmanager put-secret-value \
-  --secret-id food-delivery/app-secrets \
-  --region ap-south-1 \
-  --secret-string '{
-    "MONGODB_URI": "mongodb+srv://YOUR_USER:YOUR_PASS@cluster.mongodb.net/food-delivery",
-    "JWT_SECRET": "your-super-strong-jwt-secret-change-this",
-    "STRIPE_SECRET_KEY": "your-stripe-secret-key-here"
-  }'
-```
+**Secret 1: `food-delivery/app-secrets`**
 
-**To force immediate sync to Kubernetes:**
+Go to **AWS Console → Secrets Manager → `food-delivery/app-secrets`** → **Retrieve secret value** → **Edit**
+
+| Key | Value |
+|-----|-------|
+| `MONGODB_URI` | `mongodb+srv://youruser:yourpassword@cluster0.xxxxx.mongodb.net/food-delivery` |
+| `JWT_SECRET` | any random strong string (minimum 32 characters) |
+| `STRIPE_SECRET_KEY` | your Stripe secret key from [dashboard.stripe.com/apikeys](https://dashboard.stripe.com/apikeys) |
+
+Click **Save**
+
+---
+
+**Secret 2: `food-delivery/database`**
+
+Go to **Secrets Manager → `food-delivery/database`** → **Retrieve secret value** → **Edit**
+
+| Key | Value |
+|-----|-------|
+| `DB_HOST` | your MongoDB Atlas hostname (e.g., `cluster0.xxxxx.mongodb.net`) |
+| `DB_NAME` | `food-delivery` |
+| `DB_USERNAME` | your MongoDB Atlas username |
+| `DB_PASSWORD` | your MongoDB Atlas password |
+| `DB_PORT` | `27017` |
+
+Click **Save**
+
+---
+
+**Force sync secrets to Kubernetes immediately** (run on bastion):
+
 ```bash
 kubectl annotate externalsecret food-delivery-secrets -n food-delivery force-sync=$(date +%s) --overwrite
 ```
