@@ -51,6 +51,7 @@ jobs:
   secret-scan:
     name: "Stage 1: Secret Scanning (Gitleaks)"
     runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
