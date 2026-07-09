@@ -21,19 +21,22 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: backend
           image: ECR_REGISTRY_PLACEHOLDER/food-delivery-backend:IMAGE_TAG_PLACEHOLDER
+          imagePullPolicy: Always
           ports:
             - containerPort: 4000
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
             capabilities:
               drop:
                 - ALL

@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-# MongoDB — In-cluster database (no Atlas needed)
+# MongoDB — In-cluster database (hardened)
 # ═══════════════════════════════════════════════════════════════════
 apiVersion: apps/v1
 kind: Deployment
@@ -18,14 +18,18 @@ spec:
       labels:
         app: mongodb
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
-        runAsUser: 999
-        runAsGroup: 999
-        fsGroup: 999
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: mongodb
           image: mongo:7.0
+          imagePullPolicy: Always
           ports:
             - containerPort: 27017
           env:
@@ -41,6 +45,14 @@ spec:
                 secretKeyRef:
                   name: food-delivery-secrets
                   key: mongodb-password
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop:
+                - ALL
           resources:
             limits:
               memory: "512Mi"
@@ -51,6 +63,8 @@ spec:
           volumeMounts:
             - name: mongodb-data
               mountPath: /data/db
+            - name: tmp
+              mountPath: /tmp
           livenessProbe:
             exec:
               command:
@@ -73,6 +87,9 @@ spec:
         - name: mongodb-data
           emptyDir:
             sizeLimit: 1Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
 ---
 apiVersion: v1
 kind: Service

@@ -1,7 +1,7 @@
 # ═══════════════════════════════════════════════════════════════════
 # Stage 1: Build dependencies
 # ═══════════════════════════════════════════════════════════════════
-FROM node:20-slim AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ RUN rm -rf .env .git tests
 # ═══════════════════════════════════════════════════════════════════
 # Stage 2: Production image (DISTROLESS — no shell, no package manager)
 # ═══════════════════════════════════════════════════════════════════
-FROM gcr.io/distroless/nodejs20-debian12
+FROM gcr.io/distroless/nodejs22-debian12
 
 WORKDIR /app
 
