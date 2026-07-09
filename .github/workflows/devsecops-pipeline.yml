@@ -14,12 +14,17 @@ name: DevSecOps Pipeline - Food Delivery (Production)
 # ═══════════════════════════════════════════════════════════════════
 
 on:
-  pull_request:
+  push:
     branches: [master]
     paths-ignore:
       - "terraform/**"
       - "*.md"
       - ".github/dependabot.yml"
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - "terraform/**"
+      - "*.md"
   workflow_dispatch:
     inputs:
       action:
