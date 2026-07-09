@@ -21,7 +21,7 @@ resource "aws_secretsmanager_secret" "app_secrets" {
 resource "aws_secretsmanager_secret_version" "app_secrets" {
   secret_id = aws_secretsmanager_secret.app_secrets.id
   secret_string = jsonencode({
-    MONGODB_URI       = "CHANGE_ME"
+    MONGODB_URI       = "mongodb://mongodb.food-delivery.svc.cluster.local:27017/food-delivery"
     JWT_SECRET        = "CHANGE_ME"
     STRIPE_SECRET_KEY = "CHANGE_ME"
   })
@@ -72,7 +72,7 @@ resource "aws_secretsmanager_secret" "database" {
 resource "aws_secretsmanager_secret_version" "database" {
   secret_id = aws_secretsmanager_secret.database.id
   secret_string = jsonencode({
-    DB_HOST     = "CHANGE_ME"
+    DB_HOST     = "mongodb.food-delivery.svc.cluster.local"
     DB_USERNAME = "CHANGE_ME"
     DB_PASSWORD = "CHANGE_ME"
     DB_NAME     = "food-delivery"

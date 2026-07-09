@@ -393,10 +393,10 @@ Go to **Secrets Manager → `food-delivery/database`** → **Retrieve secret val
 
 | Key | Value |
 |-----|-------|
-| `DB_HOST` | your MongoDB Atlas hostname (e.g., `cluster0.xxxxx.mongodb.net`) |
+| `DB_HOST` | `mongodb.food-delivery.svc.cluster.local` |
 | `DB_NAME` | `food-delivery` |
-| `DB_USERNAME` | your MongoDB Atlas username |
-| `DB_PASSWORD` | your MongoDB Atlas password |
+| `DB_USERNAME` | `CHANGE_ME` (not used — no auth configured) |
+| `DB_PASSWORD` | `CHANGE_ME` (not used — no auth configured) |
 | `DB_PORT` | `27017` |
 
 Click **Save**
