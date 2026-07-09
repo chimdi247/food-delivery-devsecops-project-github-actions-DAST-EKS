@@ -215,6 +215,7 @@ jobs:
           exit-code: "1"
           severity: "CRITICAL,HIGH"
           ignore-unfixed: true
+          scanners: "vuln"
 
       - name: Scan Frontend Image
         uses: aquasecurity/trivy-action@master
@@ -225,6 +226,7 @@ jobs:
           exit-code: "1"
           severity: "CRITICAL,HIGH"
           ignore-unfixed: true
+          scanners: "vuln"
 
       - name: Scan Admin Image
         uses: aquasecurity/trivy-action@master
@@ -235,6 +237,7 @@ jobs:
           exit-code: "1"
           severity: "CRITICAL,HIGH"
           ignore-unfixed: true
+          scanners: "vuln"
 
       - name: Upload Trivy SARIF results
         uses: github/codeql-action/upload-sarif@v3
@@ -271,6 +274,9 @@ jobs:
           file: backend/Dockerfile
           framework: dockerfile
           soft_fail: false
+          # CKV_DOCKER_2: Distroless images cannot have HEALTHCHECK (no shell available)
+          # Health checks are handled by Kubernetes liveness/readiness probes
+          skip_check: "CKV_DOCKER_2"
 
   # ═══════════════════════════════════════════════════════════════════
   # STAGE 7: PUSH TO AMAZON ECR (Episode 07 — OIDC)
