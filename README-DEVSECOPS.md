@@ -381,9 +381,14 @@ Copy the output — you'll paste it in the next step. Keep it secret, never shar
 
 1. Go to [dashboard.stripe.com](https://dashboard.stripe.com) → Login
 2. Click **Developers** (top-right) → **API keys**
-3. Under **Standard keys** → Click **Reveal test key** → Copy the key
-   - Test key starts with `sk_test_` — no real money charged
-   - Live key starts with `sk_live_` — real payments processed
+3. You will see **Standard keys** section with two keys:
+   - `Publishable key` — starts with `pk_test_` (used in frontend, safe to share)
+   - `Secret key` — starts with `sk_test_` (used in backend, **keep this secret**)
+4. Click **Secret key** row → click the copy icon to copy it
+   - Test key: `sk_test_` — no real money charged (use this for development)
+   - Live key: `sk_live_` — real payments processed (use for production)
+
+> You only need the **Secret key** (`sk_test_...`) — copy that value
 
 ---
 
