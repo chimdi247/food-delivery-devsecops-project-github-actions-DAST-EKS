@@ -216,6 +216,18 @@ jobs:
           severity: "CRITICAL,HIGH"
           ignore-unfixed: true
           scanners: "vuln"
+          trivyignores: ".trivyignore"
+
+      - name: Show Backend Vulnerabilities (debug)
+        if: failure()
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_BACKEND }}:${{ env.IMAGE_TAG }}"
+          format: "table"
+          exit-code: "0"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+          scanners: "vuln"
 
       - name: Scan Frontend Image
         uses: aquasecurity/trivy-action@master
