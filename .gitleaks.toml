@@ -34,6 +34,7 @@ paths = [
   '''README\.md$''',
   '''terraform/secrets-manager\.tf$''',
   '''Secrets-Manager/README\.md$''',
+  '''\.github/workflows/devsecops-pipeline\.yml$''',
 ]
 
 # Allowlist specific regex patterns that are known demo/placeholder values
@@ -41,4 +42,6 @@ regexes = [
   '''mongodb://foodadmin:FoodSecure2024@mongodb\.food-delivery\.svc''',
   '''FoodSecure2024''',
   '''CHANGE_ME''',
+  '''\$JWT_SECRET''',
+  '''jwt-secret="\$''',
 ]
