@@ -6,7 +6,7 @@ export const StoreContext = createContext(null);
 
 const StoreContextProvider = (props) => {
   const [cartItems, setCartItems] = useState({});
-  const url = "https://food-delivery-backend-5b6g.onrender.com";
+  const url = "";
   const [token, setToken] = useState("");
   const [food_list, setFoodList] = useState([]);
 
@@ -17,14 +17,14 @@ const StoreContextProvider = (props) => {
       setCartItems((prev) => ({ ...prev, [itemId]: prev[itemId] + 1 }));
     }
     if (token) {
-      const response=await axios.post(
+      const response = await axios.post(
         url + "/api/cart/add",
         { itemId },
         { headers: { token } }
       );
-      if(response.data.success){
+      if (response.data.success) {
         toast.success("item Added to Cart")
-      }else{
+      } else {
         toast.error("Something went wrong")
       }
     }
@@ -33,14 +33,14 @@ const StoreContextProvider = (props) => {
   const removeFromCart = async (itemId) => {
     setCartItems((prev) => ({ ...prev, [itemId]: prev[itemId] - 1 }));
     if (token) {
-      const response= await axios.post(
+      const response = await axios.post(
         url + "/api/cart/remove",
         { itemId },
         { headers: { token } }
       );
-      if(response.data.success){
+      if (response.data.success) {
         toast.success("item Removed from Cart")
-      }else{
+      } else {
         toast.error("Something went wrong")
       }
     }

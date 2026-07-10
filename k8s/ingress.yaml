@@ -17,11 +17,11 @@ spec:
   ingressClassName: alb
   tls:
     - hosts:
-        - tagent.cfd
-        - admin.tagent.cfd
+        - DOMAIN_PLACEHOLDER
+        - admin.DOMAIN_PLACEHOLDER
   rules:
     # Frontend
-    - host: tagent.cfd
+    - host: DOMAIN_PLACEHOLDER
       http:
         paths:
           - path: /api
@@ -46,7 +46,7 @@ spec:
                 port:
                   number: 80
     # Admin panel
-    - host: admin.tagent.cfd
+    - host: admin.DOMAIN_PLACEHOLDER
       http:
         paths:
           - path: /

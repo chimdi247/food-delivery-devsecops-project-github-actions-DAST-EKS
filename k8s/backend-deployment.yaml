@@ -52,6 +52,8 @@ spec:
               value: "4000"
             - name: SALT
               value: "10"
+            - name: FRONTEND_URL
+              value: "https://YOUR_DOMAIN_HERE"
             - name: MONGO_URL
               valueFrom:
                 secretKeyRef:

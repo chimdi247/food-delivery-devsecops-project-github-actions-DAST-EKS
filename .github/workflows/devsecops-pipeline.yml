@@ -391,10 +391,12 @@ jobs:
           sed -i "s|ECR_REGISTRY_PLACEHOLDER|${{ env.ECR_REGISTRY }}|g" k8s/backend-deployment.yaml
           sed -i "s|ECR_REGISTRY_PLACEHOLDER|${{ env.ECR_REGISTRY }}|g" k8s/frontend-deployment.yaml
           sed -i "s|ECR_REGISTRY_PLACEHOLDER|${{ env.ECR_REGISTRY }}|g" k8s/admin-deployment.yaml
+          sed -i "s|YOUR_DOMAIN_HERE|${{ vars.APP_URL }}|g" k8s/backend-deployment.yaml
+          sed -i "s|DOMAIN_PLACEHOLDER|${{ vars.APP_URL }}|g" k8s/ingress.yaml
 
-          # Get ACM certificate ARN for tagent.cfd (created manually in AWS)
+          # Get ACM certificate ARN (created manually in AWS)
           ACM_ARN=$(aws acm list-certificates --region ${{ vars.AWS_REGION }} \
-            --query "CertificateSummaryList[?DomainName=='tagent.cfd'].CertificateArn" --output text)
+            --query "CertificateSummaryList[?DomainName=='${{ vars.APP_URL }}'].CertificateArn" --output text)
           echo "Using ACM Certificate: $ACM_ARN"
 
           # Inject ACM ARN into ingress
@@ -457,8 +459,8 @@ jobs:
           sleep 90
           ALB_URL=$(kubectl get ingress food-delivery-ingress -n food-delivery -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
           if [ -z "$ALB_URL" ]; then
-            echo "ALB not ready yet, using tagent.cfd"
-            ALB_URL="tagent.cfd"
+            echo "ALB not ready yet, using APP_URL"
+            ALB_URL="${{ vars.APP_URL }}"
           fi
           echo "APP_TARGET_URL=https://$ALB_URL" >> $GITHUB_ENV
           echo "Target URL: https://$ALB_URL"
