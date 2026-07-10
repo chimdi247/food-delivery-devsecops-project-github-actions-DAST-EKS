@@ -411,6 +411,7 @@ jobs:
           kubectl apply -f k8s/frontend-service.yaml
           kubectl apply -f k8s/admin-deployment.yaml
           kubectl apply -f k8s/admin-service.yaml
+          kubectl apply -f k8s/ingressclass.yaml
           kubectl apply -f k8s/ingress.yaml
 
           # Wait for rollouts
