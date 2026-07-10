@@ -177,21 +177,25 @@ Things that stay (cost $0):
 
 #### Step 6: Create ACM Certificate (HTTPS for tagent.cfd)
 
-**Why:** So your website has HTTPS (the lock icon in browser).
+**Why:** So your website has HTTPS (the lock icon in browser). The certificate MUST be in the **same region as your EKS cluster** (ap-south-1).
 
-1. Search **"Certificate Manager"** in AWS Console → Click it
-2. Click **"Request a certificate"**
-3. Select **"Request a public certificate"** → Click **"Next"**
-4. Domain names:
+> ⚠️ **IMPORTANT:** Create the certificate in **ap-south-1 (Mumbai)** 
+
+1. Go to **AWS Console** → Make sure region is **Asia Pacific (Mumbai) ap-south-1** (top-right corner)
+2. Search **"Certificate Manager"** → Click it
+3. Click **"Request a certificate"**
+4. Select **"Request a public certificate"** → Click **"Next"**
+5. Domain names:
    - Add: `tagent.cfd`
    - Click **"Add another name to this certificate"**
    - Add: `*.tagent.cfd`
-5. Validation method: **DNS validation**
-6. Click **"Request"**
-7. You'll see the certificate with status "Pending validation"
-8. **Don't close this page** — you need it in Step 7
+6. Validation method: **DNS validation**
+7. Click **"Request"**
+8. You'll see the certificate with status "Pending validation"
+9. Click on the certificate → Click **"Create records in Route 53"** → Click **"Create records"**
+10. Wait 5-30 minutes → Status changes to **Issued** ✅
 
-✅ Certificate requested! (It will be validated after Step 7)
+✅ Certificate issued! The pipeline will automatically fetch this certificate ARN for the ALB.
 
 ---
 
