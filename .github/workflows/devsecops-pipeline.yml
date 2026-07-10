@@ -156,17 +156,14 @@ jobs:
       - name: Build Backend Image
         run: |
           docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_BACKEND }}:${{ env.IMAGE_TAG }} ./backend
-          docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_BACKEND }}:latest ./backend
 
       - name: Build Frontend Image
         run: |
           docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_FRONTEND }}:${{ env.IMAGE_TAG }} ./frontend
-          docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_FRONTEND }}:latest ./frontend
 
       - name: Build Admin Image
         run: |
           docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_ADMIN }}:${{ env.IMAGE_TAG }} ./admin
-          docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_ADMIN }}:latest ./admin
 
       - name: Save images for next stages
         run: |
@@ -324,17 +321,14 @@ jobs:
       - name: Push Backend Image
         run: |
           docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_BACKEND }}:${{ env.IMAGE_TAG }}
-          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_BACKEND }}:latest
 
       - name: Push Frontend Image
         run: |
           docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_FRONTEND }}:${{ env.IMAGE_TAG }}
-          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_FRONTEND }}:latest
 
       - name: Push Admin Image
         run: |
           docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_ADMIN }}:${{ env.IMAGE_TAG }}
-          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_ADMIN }}:latest
 
   # ═══════════════════════════════════════════════════════════════════
   # STAGE 8: DEPLOY TO KUBERNETES (Episode 06)
