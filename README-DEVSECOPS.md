@@ -512,27 +512,35 @@ Copy the ADDRESS (looks like: `k8s-fooddeli-xxx.ap-south-1.elb.amazonaws.com`)
 
 ---
 
-#### Step 15.1: Create Admin User (Run on Bastion)
+#### Step 15.1: Check Registered Users (Run on Bastion)
 
-**Why:** The admin panel needs a user with `role: "admin"` to login. Fresh MongoDB has no users, so we create one.
-
-1. Connect to bastion (Step 10)
-2. First, sign up on the frontend with any email (e.g., `admin@food.com` / `password123`)
-3. Check which users exist in the database:
+**Why:** Before creating an admin, you need to see which users have registered on the frontend.
 
 ```bash
 kubectl exec deployment/mongodb -n food-delivery -- mongosh --quiet --norc -u foodadmin -p FoodSecure2024 --authenticationDatabase admin food-delivery --eval 'db.users.find({}).toArray()'
 ```
 
-4. Promote that user to admin (replace `your-email@example.com` with the email you signed up with):
+This shows all registered users with their email and role.
+
+---
+
+#### Step 15.2: Create Admin Account (Run on Bastion)
+
+**Why:** The admin panel requires a user with `role: "admin"`. By default all users sign up as `role: "user"`.
+
+**Method:** First sign up on the frontend like a normal user, then promote that user to admin.
+
+1. Go to your frontend (`https://your-domain.com`) → Click **Sign In** → Switch to **Sign Up**
+2. Create account with your email and password
+3. Run this command on bastion to promote that user to admin (replace the email):
 
 ```bash
 kubectl exec deployment/mongodb -n food-delivery -- mongosh --quiet --norc -u foodadmin -p FoodSecure2024 --authenticationDatabase admin food-delivery --eval 'db.users.updateOne({email:"your-email@example.com"},{$set:{role:"admin"}})'
 ```
 
-5. Login to Admin Panel with that email and password
-6. Go to **Add Items** → Add food items (name, price, image, category)
-7. The frontend will now display the food items you added
+4. Now login to Admin Panel (`https://admin.your-domain.com`) with that same email and password
+5. Go to **Add Items** → Add food items (name, price, image, category)
+6. The frontend will now display the food items you added
 
 ---
 
