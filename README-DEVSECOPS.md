@@ -383,7 +383,13 @@ Copy the output — you'll paste it in the next step. Keep it secret, never shar
 
 **Step 13.2 — Get your Stripe Secret Key:**
 
-1. Go to [dashboard.stripe.com](https://dashboard.stripe.com) → Login
+So here's the thing — our food delivery app needs to accept payments from customers, right? When someone orders food, they need to pay. Stripe is the payment gateway we're using for that. Think of Stripe like a middleman between the customer's credit card and your bank account. When a customer clicks "Pay", our backend talks to Stripe, Stripe handles the card details securely (so we never touch sensitive card numbers), and once payment is confirmed, the order goes through.
+
+The Secret Key is what lets our backend server talk to Stripe's API. Without it, payments won't work. Don't worry — we're using the **test key** here, so no real money is charged during development.
+
+**How to get it:**
+
+1. Go to [dashboard.stripe.com](https://dashboard.stripe.com) → Create a free account if you don't have one, then Login
 2. Click **Developers** (top-right) → **API keys**
 3. You will see two sections:
    - **Restricted keys** — limited access keys (not needed)
