@@ -524,33 +524,21 @@ This shows all registered users — both customers (`role: "user"`) and admins (
 
 ---
 
-#### Step 15.2: Create Admin Account for Admin Panel (Run on Bastion)
+#### Step 15.2: Login to Admin Panel
 
-**Why:** The Admin Panel is for the restaurant owner/company — NOT for customers. Only users with `role: "admin"` can access it. Customers who sign up on the frontend get `role: "user"` and cannot access the admin panel.
+**The admin account is created automatically during deployment.** No manual steps needed.
 
-**How it works:**
-- **Frontend** (`your-domain.com`) — Customers sign up here with their own email/password. They browse food, order, and pay.
-- **Admin Panel** (`admin.your-domain.com`) — Only the restaurant owner/company logs in here to add food items, manage orders, and update delivery status.
+| Field | Value |
+|-------|-------|
+| Email | `admin@food.com` |
+| Password | `admin123` |
 
-**Steps to create your Admin account:**
+1. Go to **Admin Panel** (`admin.your-domain.com`)
+2. Login with the credentials above
+3. Go to **Add Items** → Add more food items if needed
+4. Go to **Orders** → Manage customer orders
 
-1. Go to your **frontend** → Sign Up with your **company email** and a **strong password**
-   - Example: `restaurant-owner@company.com` / `MySecurePass@2024`
-   - This is YOUR admin account — different from customer accounts
-
-2. Run this on bastion to promote that account to admin (replace with your email):
-
-```bash
-kubectl exec deployment/mongodb -n food-delivery -- mongosh --quiet --norc -u foodadmin -p FoodSecure2024 --authenticationDatabase admin food-delivery --eval 'db.users.updateOne({email:"restaurant-owner@company.com"},{$set:{role:"admin"}})'
-```
-
-3. Now login to **Admin Panel** (`admin.your-domain.com`) with that same email and password
-
-4. Go to **Add Items** → Add food items (name, price, image, category)
-5. Customers on the frontend will now see the food items and can place orders
-6. You can view and manage all customer orders in the **Orders** tab
-
-> **Note:** Customers who sign up on the frontend CANNOT access the admin panel — they only get `role: "user"`. Only accounts you manually promote to `role: "admin"` can login to the admin panel.
+> **Note:** 32 food items are also pre-loaded automatically. Customers will see them on the frontend immediately after deployment.
 ---
 
 ### PART 6: Destroy Everything (Bill → $0)

@@ -46,6 +46,4 @@ terraform/plan_output.txt
 # Coverage
 coverage/
 
-# Uploads (keep folder, ignore contents)
-backend/uploads/*
-!backend/uploads/.gitkeep
+# Uploads — images are included for seed data
