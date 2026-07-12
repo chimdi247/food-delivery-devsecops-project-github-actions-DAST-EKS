@@ -540,7 +540,14 @@ This shows all registered users — both customers (`role: "user"`) and admins (
 
 > **Note:** 32 food items are also pre-loaded automatically. Customers will see them on the frontend immediately after deployment.
 ---
+any issus run this
+```bash
+# Drop old food items and users
+kubectl exec deployment/mongodb -n food-delivery -- mongosh --quiet --norc -u foodadmin -p FoodSecure2024 --authenticationDatabase admin food-delivery --eval 'db.foods.drop(); db.users.drop()'
 
+# Re-run seed
+kubectl exec deployment/food-delivery-backend -n food-delivery -- /nodejs/bin/node seed.js
+```
 ### PART 6: Destroy Everything (Bill → $0)
 
 ---

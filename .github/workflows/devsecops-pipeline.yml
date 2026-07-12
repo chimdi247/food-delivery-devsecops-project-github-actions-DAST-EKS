@@ -42,7 +42,7 @@ env:
   ECR_REPOSITORY_FRONTEND: food-delivery-frontend
   ECR_REPOSITORY_ADMIN: food-delivery-admin
   EKS_CLUSTER_NAME: food-delivery-cluster
-  IMAGE_TAG: ${{ github.sha }}
+  IMAGE_TAG: v${{ github.run_number }}
 
 permissions:
   id-token: write
