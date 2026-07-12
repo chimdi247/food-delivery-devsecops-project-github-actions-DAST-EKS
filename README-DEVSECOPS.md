@@ -517,27 +517,22 @@ Copy the ADDRESS (looks like: `k8s-fooddeli-xxx.ap-south-1.elb.amazonaws.com`)
 **Why:** The admin panel needs a user with `role: "admin"` to login. Fresh MongoDB has no users, so we create one.
 
 1. Connect to bastion (Step 10)
-2. Run this command:
+2. First, sign up on the frontend with any email (e.g., `admin@food.com` / `password123`)
+3. Check which users exist in the database:
 
 ```bash
-kubectl exec deployment/mongodb -n food-delivery -- mongosh -u foodadmin -p FoodSecure2024 --authenticationDatabase admin food-delivery --eval 'db.users.insertOne({name:"Admin",email:"admin@food.com",password:"$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy",role:"admin",cartData:{}})'
+kubectl exec deployment/mongodb -n food-delivery -- mongosh --quiet --norc -u foodadmin -p FoodSecure2024 --authenticationDatabase admin food-delivery --eval 'db.users.find({}).toArray()'
 ```
 
-3. Admin credentials:
+4. Promote that user to admin (replace `your-email@example.com` with the email you signed up with):
 
-| Field | Value |
-|-------|-------|
-| Email | `admin@food.com` |
-| Password | `password123` |
+```bash
+kubectl exec deployment/mongodb -n food-delivery -- mongosh --quiet --norc -u foodadmin -p FoodSecure2024 --authenticationDatabase admin food-delivery --eval 'db.users.updateOne({email:"your-email@example.com"},{$set:{role:"admin"}})'
+```
 
-4. Login to Admin Panel (`https://admin.your-domain.com`) with these credentials
-5. Go to **Add Items** → Add food items (name, price, image, category)
-6. The frontend will now display the food items you added
-
-> **To change the password later:** Sign up with a new email on the frontend, then promote to admin:
-> ```bash
-> kubectl exec deployment/mongodb -n food-delivery -- mongosh -u foodadmin -p FoodSecure2024 --authenticationDatabase admin food-delivery --eval 'db.users.updateOne({email:"your-new-email@example.com"},{$set:{role:"admin"}})'
-> ```
+5. Login to Admin Panel with that email and password
+6. Go to **Add Items** → Add food items (name, price, image, category)
+7. The frontend will now display the food items you added
 
 ---
 
