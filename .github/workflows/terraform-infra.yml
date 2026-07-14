@@ -397,11 +397,47 @@ jobs:
             done
           fi
 
+      - name: Post-Destroy — Force Terminate Orphaned EC2 Instances
+        if: github.event.inputs.action == 'destroy'
+        continue-on-error: true
+        run: |
+          REGION="${{ vars.AWS_REGION }}"
+
+          # Catches the bastion (by name) AND any EKS Auto Mode nodes
+          # (tagged eks:cluster-name / eks:eks-cluster-name / karpenter.sh)
+          # that sometimes survive a `terraform destroy` because AWS
+          # tears the cluster's nodes down asynchronously.
+          INSTANCE_IDS=$( { \
+            aws ec2 describe-instances --region $REGION \
+              --filters "Name=tag:Name,Values=food-delivery-bastion" \
+                        "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+              --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null; \
+            aws ec2 describe-instances --region $REGION \
+              --filters "Name=tag-key,Values=eks:cluster-name,eks:eks-cluster-name,karpenter.sh/nodepool" \
+                        "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+              --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null; \
+          } | tr '\t\n' '  ' )
+
+          INSTANCE_IDS=$(echo "$INSTANCE_IDS" | xargs -n1 2>/dev/null | sort -u | xargs)
+
+          if [ -n "$INSTANCE_IDS" ]; then
+            echo "  Force terminating: $INSTANCE_IDS"
+            aws ec2 terminate-instances --region $REGION --instance-ids $INSTANCE_IDS || true
+            echo "  Waiting for termination..."
+            aws ec2 wait instance-terminated --region $REGION --instance-ids $INSTANCE_IDS || true
+          else
+            echo "  No orphaned instances found."
+          fi
+
       - name: Post-Destroy — Delete Orphaned EBS Volumes
         if: github.event.inputs.action == 'destroy'
         continue-on-error: true
         run: |
           REGION="${{ vars.AWS_REGION }}"
+          # "available" = detached. Also catch anything left "in-use"
+          # whose parent instance just got force-terminated above —
+          # give AWS a moment to flip the volume state to available.
+          sleep 15
           aws ec2 describe-volumes --region $REGION \
             --filters "Name=status,Values=available" \
             --query 'Volumes[].VolumeId' --output text 2>/dev/null | tr '\t' '\n' | while read -r vol; do
