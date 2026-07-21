@@ -5,7 +5,7 @@
 variable "aws_region" {
   description = "AWS region for all resources"
   type        = string
-  default     = "ap-south-1"
+  default     = "eu-west-2"
 }
 
 variable "environment" {
@@ -17,7 +17,7 @@ variable "environment" {
 variable "github_org" {
   description = "GitHub organization or username"
   type        = string
-  default     = "arumullayaswanth"
+  default     = "chimdi247"
 }
 
 variable "github_repo" {
@@ -35,7 +35,7 @@ variable "cluster_name" {
 variable "cluster_version" {
   description = "Kubernetes version for EKS"
   type        = string
-  default     = "1.31"
+  default     = "1.34"
 }
 
 # ─────────────────────────────────────────────────────────────────

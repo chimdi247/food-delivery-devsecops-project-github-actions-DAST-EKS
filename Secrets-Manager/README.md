@@ -39,13 +39,13 @@ aws secretsmanager update-secret \
 
 **How to add:**
 ```bash
-BASTION_IP=$(aws ec2 describe-instances --region ap-south-1 \
+BASTION_IP=$(aws ec2 describe-instances --region eu-west-2 \
   --filters "Name=tag:Name,Values=food-delivery-bastion" "Name=instance-state-name,Values=running" \
   --query "Reservations[0].Instances[0].PublicIpAddress" --output text)
 
 aws secretsmanager update-secret \
   --secret-id food-delivery/pipeline \
-  --region ap-south-1 \
+  --region eu-west-2 \
   --secret-string "{
     \"SONAR_TOKEN\": \"squ_your_token_here\",
     \"SONAR_HOST_URL\": \"http://${BASTION_IP}:9000\"
@@ -70,7 +70,7 @@ aws secretsmanager update-secret \
 ```bash
 aws secretsmanager update-secret \
   --secret-id food-delivery/database \
-  --region ap-south-1 \
+  --region eu-west-2 \
   --secret-string '{
     "DB_HOST": "cluster0.xxxxx.mongodb.net",
     "DB_USERNAME": "your-db-username",
@@ -95,7 +95,7 @@ aws secretsmanager update-secret \
 ```bash
 aws secretsmanager update-secret \
   --secret-id food-delivery/sonarqube \
-  --region ap-south-1 \
+  --region eu-west-2 \
   --secret-string "{
     \"SONAR_TOKEN\": \"squ_your_token_here\",
     \"SONAR_HOST_URL\": \"http://${BASTION_IP}:9000\"

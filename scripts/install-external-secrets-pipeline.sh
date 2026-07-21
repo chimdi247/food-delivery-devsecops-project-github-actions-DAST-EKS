@@ -14,7 +14,7 @@ set -euo pipefail
 NAMESPACE="food-delivery"
 ESO_NAMESPACE="external-secrets"
 ESO_SERVICE_ACCOUNT="external-secrets"
-AWS_REGION="${AWS_REGION:-ap-south-1}"
+AWS_REGION="${AWS_REGION:-eu-west-2}"
 CLUSTER_NAME="${CLUSTER_NAME:-food-delivery-cluster}"
 
 echo "=========================================="

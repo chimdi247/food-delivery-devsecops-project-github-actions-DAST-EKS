@@ -5,7 +5,7 @@ set -e
 # install-external-secrets.sh
 # Installs External Secrets Operator on EKS
 # Syncs secrets from AWS Secrets Manager → Kubernetes Secrets
-# 
+#
 # Usage: bash install-external-secrets.sh
 # ═══════════════════════════════════════════════════════════════════
 
@@ -18,7 +18,7 @@ warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 
 NAMESPACE="food-delivery"
 ESO_NAMESPACE="external-secrets"
-AWS_REGION="${AWS_REGION:-ap-south-1}"
+AWS_REGION="${AWS_REGION:-eu-west-2}"
 CLUSTER_NAME="${CLUSTER_NAME:-food-delivery-cluster}"
 
 echo "=========================================="
