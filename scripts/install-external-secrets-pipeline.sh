@@ -78,25 +78,33 @@ helm upgrade --install external-secrets external-secrets/external-secrets \
 echo "Waiting for External Secrets pods to be ready..."
 echo "  (EKS Auto Mode is provisioning a node — this may take 3-5 minutes)"
 
-# Use kubectl wait on POD readiness (not deployment availability)
-# Deployment condition=available fails when progressDeadlineSeconds expires
-# But pod condition=ready works once the node is provisioned
+# FIX: wait on ALL pods in the namespace, not just the main controller pod
+# (app.kubernetes.io/name=external-secrets only matches the controller —
+#  it misses external-secrets-cert-controller and external-secrets-webhook.
+#  Step 6 applies a SecretStore, which is validated by an admission webhook
+#  hosted on the webhook pod. If that pod isn't ready yet, the apply fails
+#  with "no endpoints available for service external-secrets-webhook".)
+READY=false
 for i in $(seq 1 60); do
-  READY=$(kubectl get pods -n "${ESO_NAMESPACE}" -l app.kubernetes.io/name=external-secrets \
-    -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
-  if [ "$READY" = "True" ]; then
-    echo "  ✅ External Secrets pod is Ready!"
+  TOTAL=$(kubectl get pods -n "${ESO_NAMESPACE}" --no-headers 2>/dev/null | wc -l)
+  NOT_READY=$(kubectl get pods -n "${ESO_NAMESPACE}" --no-headers 2>/dev/null \
+    | awk '{split($2,a,"/"); if (a[1]!=a[2]) print}' | wc -l)
+
+  if [ "$TOTAL" -ge 3 ] && [ "$NOT_READY" -eq 0 ]; then
+    echo "  ✅ All External Secrets pods are Ready!"
     kubectl get pods -n "${ESO_NAMESPACE}"
+    READY=true
     break
   fi
+
   if [ "$i" -eq "60" ]; then
     echo "  WARNING: Timed out after 10 minutes. Current status:"
     kubectl get pods -n "${ESO_NAMESPACE}"
     kubectl get nodes
-    echo "  Continuing — the pod will become ready once the node is provisioned..."
+    echo "  Continuing — later steps may fail if the webhook pod isn't ready..."
     break
   fi
-  # Show current status every 5 iterations
+
   if [ $((i % 5)) -eq 0 ]; then
     echo "  Status at attempt $i/60:"
     kubectl get pods -n "${ESO_NAMESPACE}" --no-headers 2>/dev/null || echo "    No pods yet"
@@ -106,6 +114,14 @@ for i in $(seq 1 60); do
   fi
   sleep 10
 done
+
+# Belt-and-braces: explicitly block on the webhook pod specifically, since
+# that's the one Step 6 actually depends on.
+kubectl wait --for=condition=Ready pod \
+  -l app.kubernetes.io/name=external-secrets-webhook \
+  -n "${ESO_NAMESPACE}" --timeout=120s || {
+  echo "  WARNING: webhook pod did not reach Ready in time; Step 6 may fail."
+}
 
 kubectl get pods -n "${ESO_NAMESPACE}"
 
@@ -140,11 +156,45 @@ echo ""
 echo "Setting up IAM for External Secrets..."
 
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-OIDC_PROVIDER=$(aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} \
-  --query "cluster.identity.oidc.issuer" --output text | sed 's|https://||')
+OIDC_ISSUER_URL=$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+  --query "cluster.identity.oidc.issuer" --output text)
+OIDC_PROVIDER=$(echo "${OIDC_ISSUER_URL}" | sed 's|https://||')
+OIDC_HOST=$(echo "${OIDC_PROVIDER}" | cut -d'/' -f1)
 
 echo "  Account: ${AWS_ACCOUNT_ID}"
 echo "  OIDC: ${OIDC_PROVIDER}"
+
+# ─────────────────────────────────────────────────────────────────
+# FIX: Ensure the IAM OIDC identity provider is associated with this
+# cluster. Without this, the trust policy below references a provider
+# ARN that doesn't exist in IAM, and every AssumeRoleWithWebIdentity
+# call fails with "InvalidIdentityToken: The web identity token
+# provided could not be validated" — even though the role, policy, and
+# service account annotation are all otherwise correct.
+# ─────────────────────────────────────────────────────────────────
+echo "Checking IAM OIDC provider association..."
+OIDC_PROVIDER_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
+
+if aws iam get-open-id-connect-provider --open-id-connect-provider-arn "${OIDC_PROVIDER_ARN}" >/dev/null 2>&1; then
+  echo "  ✅ OIDC provider already associated: ${OIDC_PROVIDER_ARN}"
+else
+  echo "  OIDC provider not found — creating it now..."
+  THUMBPRINT=$(echo | openssl s_client -servername "${OIDC_HOST}" -showcerts -connect "${OIDC_HOST}:443" 2>/dev/null \
+    | openssl x509 -fingerprint -sha1 -noout | sed 's/://g' | sed 's/.*=//' | tr 'A-F' 'a-f')
+
+  if [ -z "${THUMBPRINT}" ]; then
+    echo "  ERROR: failed to compute OIDC thumbprint. Cannot associate IAM OIDC provider."
+    exit 1
+  fi
+
+  aws iam create-open-id-connect-provider \
+    --url "${OIDC_ISSUER_URL}" \
+    --client-id-list sts.amazonaws.com \
+    --thumbprint-list "${THUMBPRINT}" \
+    --region "${AWS_REGION}"
+
+  echo "  ✅ OIDC provider created: ${OIDC_PROVIDER_ARN}"
+fi
 
 # Create IAM policy for Secrets Manager access
 cat > /tmp/eso-policy.json <<EOF
@@ -288,7 +338,20 @@ EOF
 # Step 7: Verify
 # ─────────────────────────────────────────────────────────────────
 echo "Waiting for secret sync..."
-sleep 15
+
+# FIX: poll for readiness instead of a fixed sleep, since first-time
+# credential validation (STS AssumeRoleWithWebIdentity) can take a few
+# seconds longer than the previous fixed 15s sleep allowed for.
+for i in $(seq 1 12); do
+  STATUS=$(kubectl get externalsecret food-delivery-secrets -n "${NAMESPACE}" \
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+  if [ "$STATUS" = "True" ]; then
+    echo "  ✅ ExternalSecret synced successfully!"
+    break
+  fi
+  echo "  Waiting for sync... ($i/12)"
+  sleep 5
+done
 
 kubectl get externalsecret -n ${NAMESPACE}
 kubectl get secret food-delivery-secrets -n ${NAMESPACE} 2>/dev/null || echo "  (secret will sync after real values are added to AWS Secrets Manager)"
