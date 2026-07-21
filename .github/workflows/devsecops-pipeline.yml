@@ -11,6 +11,19 @@ name: DevSecOps Pipeline - Food Delivery (Production)
 #   - PR to master    → Runs scan stages (1-6) only, no deploy
 #   - Manual dispatch → Runs full pipeline including deploy
 #   - Push to master  → Does NOT trigger (you deploy manually)
+#
+# CHANGE LOG (secrets handling fix):
+#   The old "Fetch app secrets ... and create K8s secret" step in the
+#   deploy job did an imperative kubectl delete + kubectl create of
+#   food-delivery-secrets from AWS Secrets Manager values. That secret
+#   is also owned by an External Secrets Operator ExternalSecret
+#   (creationPolicy: Owner) which recreates the Secret the instant it
+#   sees a delete. The two writers raced, and kubectl create routinely
+#   lost with "secrets \"food-delivery-secrets\" already exists".
+#   Fixed by making ESO the single owner: this job now ensures the ESO
+#   stack (operator + IRSA + SecretStore + ExternalSecret) is present
+#   and healthy, then forces an immediate resync and waits for Ready,
+#   instead of writing the Secret directly.
 # ═══════════════════════════════════════════════════════════════════
 
 on:
@@ -332,7 +345,8 @@ jobs:
 
   # ═══════════════════════════════════════════════════════════════════
   # STAGE 8: DEPLOY TO KUBERNETES (Episode 06)
-  # Secrets injected from AWS Secrets Manager — ZERO hardcoding
+  # Secrets owned and synced by External Secrets Operator — ZERO
+  # hardcoding, ZERO direct kubectl secret writes from this pipeline.
   # ═══════════════════════════════════════════════════════════════════
   deploy:
     name: "Stage 8: Deploy to EKS"
@@ -352,35 +366,50 @@ jobs:
         run: |
           aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ vars.AWS_REGION }}
 
-      - name: Fetch app secrets from AWS Secrets Manager and create K8s secret
+      # ─────────────────────────────────────────────────────────────
+      # FIXED STEP (was: "Fetch app secrets from AWS Secrets Manager
+      # and create K8s secret"). Runs the ESO install/bootstrap script,
+      # which is fully idempotent — it's safe to run on every deploy:
+      #   - helm upgrade --install is a no-op if ESO is already current
+      #   - the IAM OIDC provider check skips creation if already present
+      #   - kubectl apply on the ServiceAccount/SecretStore/ExternalSecret
+      #     is a no-op if unchanged
+      # This guarantees the ESO stack exists and is healthy before we
+      # rely on it to own food-delivery-secrets, without ever writing
+      # the Secret directly ourselves.
+      # ─────────────────────────────────────────────────────────────
+      - name: Ensure External Secrets Operator stack is installed and healthy
         run: |
-          # Get secrets from AWS Secrets Manager
-          SECRETS=$(aws secretsmanager get-secret-value \
-            --secret-id food-delivery/app-secrets \
-            --query SecretString --output text)
+          chmod +x scripts/install-external-secrets-pipeline.sh
+          bash scripts/install-external-secrets-pipeline.sh
+        env:
+          CLUSTER_NAME: ${{ env.EKS_CLUSTER_NAME }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
 
-          DB_SECRETS=$(aws secretsmanager get-secret-value \
-            --secret-id food-delivery/database \
-            --query SecretString --output text)
+      - name: Force ExternalSecret resync and wait for Ready
+        run: |
+          set -euo pipefail
+          NAMESPACE="food-delivery"
+          ES_NAME="food-delivery-secrets"
 
-          MONGODB_URI=$(echo $SECRETS | jq -r '.MONGODB_URI')
-          JWT_SECRET=$(echo $SECRETS | jq -r '.JWT_SECRET')
-          STRIPE_KEY=$(echo $SECRETS | jq -r '.STRIPE_SECRET_KEY')
-          DB_USERNAME=$(echo $DB_SECRETS | jq -r '.DB_USERNAME')
-          DB_PASSWORD=$(echo $DB_SECRETS | jq -r '.DB_PASSWORD')
+          echo "Forcing ExternalSecret resync..."
+          kubectl annotate externalsecret "${ES_NAME}" -n "${NAMESPACE}" \
+            force-sync="$(date +%s)" --overwrite
 
-          # Create/update Kubernetes secret from Secrets Manager values
-          kubectl create namespace food-delivery --dry-run=client -o yaml | kubectl apply -f -
+          echo "Waiting for sync to complete..."
+          if kubectl wait \
+              --for=jsonpath='{.status.conditions[?(@.type=="Ready")].status}'=True \
+              "externalsecret/${ES_NAME}" -n "${NAMESPACE}" --timeout=60s; then
+            echo "✅ Secrets synced successfully."
+          else
+            echo "ERROR: ExternalSecret did not reach Ready within 60s. Current status:"
+            kubectl describe externalsecret "${ES_NAME}" -n "${NAMESPACE}"
+            exit 1
+          fi
 
-          kubectl delete secret food-delivery-secrets -n food-delivery --ignore-not-found
-
-          kubectl create secret generic food-delivery-secrets \
-            --namespace food-delivery \
-            --from-literal=mongodb-uri="$MONGODB_URI" \
-            --from-literal=jwt-secret="$JWT_SECRET" \
-            --from-literal=stripe-secret-key="$STRIPE_KEY" \
-            --from-literal=mongodb-username="$DB_USERNAME" \
-            --from-literal=mongodb-password="$DB_PASSWORD"
+          echo ""
+          echo "Synced secret keys:"
+          kubectl get secret "${ES_NAME}" -n "${NAMESPACE}" -o jsonpath='{.data}' | jq 'keys'
 
       - name: Deploy to Kubernetes
         run: |
